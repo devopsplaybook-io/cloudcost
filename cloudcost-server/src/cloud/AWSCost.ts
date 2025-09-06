@@ -1,10 +1,12 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
 import {
   CostExplorerClient,
   GetCostAndUsageCommand,
   Granularity,
 } from "@aws-sdk/client-cost-explorer";
+
+const logger = OTelLogger().createModuleLogger("AWSCost");
 
 export async function AWSGetMonthCurrent(context: Span): Promise<number> {
   const span = OTelTracer().startSpan("AWSCostGetMonthCurrent", context);
@@ -29,6 +31,7 @@ export async function AWSGetMonthCurrent(context: Span): Promise<number> {
     span.end();
     return amount ? parseFloat(Number(amount).toFixed(2)) : 0;
   } catch (err) {
+    logger.error(`Error fetching AWS cost: ${(err as Error).message}`);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
     return 0;
