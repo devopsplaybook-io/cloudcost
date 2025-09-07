@@ -31,7 +31,7 @@ export async function AWSGetMonthCurrent(context: Span): Promise<number> {
     span.end();
     return amount ? parseFloat(Number(amount).toFixed(2)) : 0;
   } catch (err) {
-    logger.error(`Error fetching AWS cost: ${(err as Error).message}`);
+    logger.error(`Error fetching AWS cost: ${(err as Error).message}`, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
     return 0;

@@ -28,7 +28,7 @@ async function SchedulerMonitor(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerMonitor");
   AWSGetMonthCurrent(span).then((amount) => {
     cost.aws = amount;
-    logger.info(`Current month AWS cost: $${amount}`);
+    logger.info(`Current month AWS cost: $${amount}`, span);
   });
 
   span.end();
