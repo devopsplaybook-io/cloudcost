@@ -17,7 +17,10 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
       (observableResult) => {
         observableResult.observe(cost.aws, { cloud: "aws" });
         observableResult.observe(cost.azure, { cloud: "azure" });
-        observableResult.observe(cost.aws + cost.azure, { cloud: "total" });
+        observableResult.observe(
+          Number(Number(cost.aws + cost.azure).toFixed(2)),
+          { cloud: "total" }
+        );
       },
       { description: "Current Month Cloud Cost" }
     );
