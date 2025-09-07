@@ -5,6 +5,7 @@ import {
   GetCostAndUsageCommand,
   Granularity,
 } from "@aws-sdk/client-cost-explorer";
+import { AzureGetMonthCurrent } from "./AzureCost";
 
 const logger = OTelLogger().createModuleLogger("AWSCost");
 
@@ -31,7 +32,7 @@ export async function AWSGetMonthCurrent(context: Span): Promise<number> {
     span.end();
     return amount ? parseFloat(Number(amount).toFixed(2)) : 0;
   } catch (err) {
-    logger.error(`Error fetching AWS cost: ${(err as Error).message}`, span);
+    logger.error("Error fetching AWS cost", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
     return 0;
