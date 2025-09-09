@@ -1,3 +1,4 @@
+import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
 import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
 import { Config } from "./Config";
@@ -7,7 +8,7 @@ const logger = OTelLogger().createModuleLogger("Scheduler");
 
 let config;
 
-const cost = { aws: 0, azure: 0 };
+const cost = { aws: 0, azure: 0, alibabacloud: 0 };
 
 export async function SchedulerInit(configIn: Config): Promise<void> {
   config = configIn;
@@ -17,8 +18,9 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
       (observableResult) => {
         observableResult.observe(cost.aws, { cloud: "aws" });
         observableResult.observe(cost.azure, { cloud: "azure" });
+        observableResult.observe(cost.alibabacloud, { cloud: "alibabacloud" });
         observableResult.observe(
-          Number(Number(cost.aws + cost.azure).toFixed(2)),
+          Number(Number(cost.aws + cost.azure + cost.alibabacloud).toFixed(2)),
           { cloud: "total" }
         );
       },
@@ -38,6 +40,10 @@ async function SchedulerPricesCheck(): Promise<void> {
   AzureGetMonthCurrent(span).then((amount) => {
     cost.azure = amount;
     logger.info(`Current month Azure cost: $${amount}`, span);
+  });
+  AlibabaCloudGetMonthCurrent(span).then((amount) => {
+    cost.alibabacloud = amount;
+    logger.info(`Current month AlibabaCloud cost: $${amount}`, span);
   });
 
   span.end();

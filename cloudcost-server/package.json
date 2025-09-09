@@ -13,6 +13,9 @@
     "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'"
   },
   "dependencies": {
+    "@alicloud/bssopenapi20171214": "^4.0.0",
+    "@alicloud/openapi-client": "^0.4.15",
+    "@alicloud/pop-core": "^1.8.0",
     "@aws-sdk/client-cost-explorer": "^3.883.0",
     "@azure/arm-costmanagement": "^1.0.0-beta.1",
     "@azure/identity": "^4.11.1",
