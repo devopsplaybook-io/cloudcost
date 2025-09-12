@@ -1,3 +1,4 @@
+import { SpanStatusCode } from "@opentelemetry/api";
 import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
 import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
@@ -66,18 +67,36 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
 
 async function SchedulerPricesCheck(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerPricesCheck");
-  AWSGetMonthCurrent(span).then((amount) => {
-    cost.aws = amount;
-    logger.info(`Current month AWS cost: $${amount.total}`, span);
-  });
-  AzureGetMonthCurrent(span).then((amount) => {
-    cost.azure = amount;
-    logger.info(`Current month Azure cost: $${amount.total}`, span);
-  });
-  AlibabaCloudGetMonthCurrent(span).then((amount) => {
-    cost.alibabacloud = amount;
-    logger.info(`Current month AlibabaCloud cost: $${amount.total}`, span);
-  });
+  await AWSGetMonthCurrent(span)
+    .then((amount) => {
+      cost.aws = amount;
+      span.addEvent("AWS cost: " + JSON.stringify(amount));
+      logger.info(`Current month AWS cost: $${amount.total}`, span);
+    })
+    .catch((err) => {
+      logger.error("Error fetching AWS cost", err, span);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    });
+  await AzureGetMonthCurrent(span)
+    .then((amount) => {
+      cost.azure = amount;
+      span.addEvent("Azure cost: " + JSON.stringify(amount));
+      logger.info(`Current month Azure cost: $${amount.total}`, span);
+    })
+    .catch((err) => {
+      logger.error("Error fetching Azure cost", err, span);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    });
+  await AlibabaCloudGetMonthCurrent(span)
+    .then((amount) => {
+      cost.alibabacloud = amount;
+      span.addEvent("AlibabaCloud cost: " + JSON.stringify(amount));
+      logger.info(`Current month AlibabaCloud cost: $${amount.total}`, span);
+    })
+    .catch((err) => {
+      logger.error("Error fetching AlibabaCloud cost", err, span);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    });
 
   span.end();
   setTimeout(() => {

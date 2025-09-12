@@ -40,14 +40,13 @@ export async function AWSGetMonthCurrent(
     );
     const resultsByTime = data.ResultsByTime?.[0];
 
-    // Calculate service breakdown and total cost
     const services: Record<string, number> = {};
     let total = 0;
     if (resultsByTime?.Groups) {
       for (const group of resultsByTime.Groups) {
         const serviceName = group.Keys?.[0] || "Unknown";
         const serviceAmount = group.Metrics?.UnblendedCost?.Amount;
-        if (serviceAmount) {
+        if (serviceAmount && Number(serviceAmount) !== 0) {
           const parsedAmount = parseFloat(Number(serviceAmount).toFixed(2));
           services[serviceName] = parsedAmount;
           total += parsedAmount;
