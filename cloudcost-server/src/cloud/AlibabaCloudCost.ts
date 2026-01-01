@@ -2,12 +2,13 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import BssOpenApi, * as $BssOpenApi from "@alicloud/bssopenapi20171214";
 import * as $OpenApi from "@alicloud/openapi-client";
+import { CostBreakdownInterface } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("AlibabaCloudCost");
 
 export async function AlibabaCloudGetMonthCurrent(
   context: Span
-): Promise<number> {
+): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan(
     "AlibabaCloudCostGetMonthCurrent",
     context
@@ -39,20 +40,31 @@ export async function AlibabaCloudGetMonthCurrent(
 
     const result = await client.queryAccountBill(request);
 
-    let amount = 0;
+    // Calculate total cost
+    let total = 0;
     if (result?.body?.data?.items?.item?.length > 0) {
-      amount = result.body.data.items.item.reduce((total, item) => {
-        return total + (item.pretaxAmount || 0);
+      total = result.body.data.items.item.reduce((acc, item) => {
+        return acc + (item.pretaxAmount || 0);
       }, 0);
-      amount = parseFloat(amount.toFixed(2));
+      total = parseFloat(total.toFixed(2));
+    }
+
+    // Calculate service breakdown
+    const services: Record<string, number> = {};
+    if (result?.body?.data?.items?.item?.length > 0) {
+      result.body.data.items.item.forEach((item) => {
+        const serviceName = item.productCode || "unknown_service";
+        const serviceCost = item.pretaxAmount || 0;
+        services[serviceName] = (services[serviceName] || 0) + serviceCost;
+      });
     }
 
     span.end();
-    return amount;
+    return { total, services };
   } catch (err) {
     logger.error("Error fetching Alibaba Cloud cost", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
-    return 0;
+    return { total: 0, services: {} };
   }
 }

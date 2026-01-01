@@ -13,7 +13,7 @@ export class Config implements ConfigOTelInterface {
   public readonly SERVICE_ID = "cloudcost-server";
   public VERSION = "1";
   public LOG_LEVEL = "info";
-  public COST_FETCH_FREQUENCY = 3_600_000;
+  public COST_FETCH_FREQUENCY = 3_600_000 * 12;
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_LOGS = "";

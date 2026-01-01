@@ -2,10 +2,13 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { CostManagementClient } from "@azure/arm-costmanagement";
 import { ClientSecretCredential } from "@azure/identity";
+import { CostBreakdownInterface } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("AzureCost");
 
-export async function AzureGetMonthCurrent(context: Span): Promise<number> {
+export async function AzureGetMonthCurrent(
+  context: Span
+): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan("AzureCostGetMonthCurrent", context);
 
   const clientId = process.env.AZURE_CLIENT_ID || "";
@@ -45,22 +48,27 @@ export async function AzureGetMonthCurrent(context: Span): Promise<number> {
       },
     });
 
-    let amount = 0;
+    // Calculate total cost
+    let total = 0;
     if (
       result &&
       result.rows &&
       result.rows.length > 0 &&
       result.rows[0].length > 0
     ) {
-      amount = parseFloat(Number(result.rows[0][0]).toFixed(2));
+      total = parseFloat(Number(result.rows[0][0]).toFixed(2));
     }
 
+    // Calculate service breakdown
+    const services: Record<string, number> = {};
+    // Add logic to populate services breakdown based on Azure API response
+
     span.end();
-    return amount;
+    return { total, services };
   } catch (err) {
     logger.error("Error fetching Azure cost", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
-    return 0;
+    return { total: 0, services: {} };
   }
 }
