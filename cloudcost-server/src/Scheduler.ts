@@ -29,13 +29,13 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
         observableResult.observe(
           Number(
             Number(
-              cost.aws.total + cost.azure.total + cost.alibabacloud.total
-            ).toFixed(2)
+              cost.aws.total + cost.azure.total + cost.alibabacloud.total,
+            ).toFixed(2),
           ),
-          { cloud: "total" }
+          { cloud: "total" },
         );
       },
-      { description: "Current Month Cloud Cost" }
+      { description: "Current Month Cloud Cost" },
     );
 
     OTelMeter().createObservableGauge(
@@ -55,10 +55,10 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
               cloud: "alibabacloud",
               service,
             });
-          }
+          },
         );
       },
-      { description: "Current Month Cloud Cost by Service" }
+      { description: "Current Month Cloud Cost by Service" },
     );
   });
 }
@@ -72,6 +72,9 @@ async function SchedulerPricesCheck(): Promise<void> {
       cost.aws = amount;
       span.addEvent("AWS cost: " + JSON.stringify(amount));
       logger.info(`Current month AWS cost: $${amount.total}`, span);
+      Object.entries(amount.services).forEach(([service, cost]) => {
+        logger.info(`  AWS - ${service}: $${cost}`, span);
+      });
     })
     .catch((err) => {
       logger.error("Error fetching AWS cost", err, span);
@@ -82,6 +85,9 @@ async function SchedulerPricesCheck(): Promise<void> {
       cost.azure = amount;
       span.addEvent("Azure cost: " + JSON.stringify(amount));
       logger.info(`Current month Azure cost: $${amount.total}`, span);
+      Object.entries(amount.services).forEach(([service, cost]) => {
+        logger.info(`  Azure - ${service}: $${cost}`, span);
+      });
     })
     .catch((err) => {
       logger.error("Error fetching Azure cost", err, span);
@@ -92,6 +98,9 @@ async function SchedulerPricesCheck(): Promise<void> {
       cost.alibabacloud = amount;
       span.addEvent("AlibabaCloud cost: " + JSON.stringify(amount));
       logger.info(`Current month AlibabaCloud cost: $${amount.total}`, span);
+      Object.entries(amount.services).forEach(([service, cost]) => {
+        logger.info(`  AlibabaCloud - ${service}: $${cost}`, span);
+      });
     })
     .catch((err) => {
       logger.error("Error fetching AlibabaCloud cost", err, span);
