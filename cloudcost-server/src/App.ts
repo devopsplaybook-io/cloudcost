@@ -31,5 +31,3 @@ Promise.resolve().then(async () => {
   SchedulerInit(config);
   span.end();
 });
-
-// Private Functions
