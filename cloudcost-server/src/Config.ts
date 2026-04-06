@@ -14,6 +14,9 @@ export class Config implements ConfigOTelInterface {
   public VERSION = "1";
   public LOG_LEVEL = "info";
   public COST_FETCH_FREQUENCY = 3_600_000 * 12;
+  public COST_ENABLED_ALIBABACLOUD = false;
+  public COST_ENABLED_AWS = false;
+  public COST_ENABLED_AZURE = false;
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_LOGS = "";
@@ -49,11 +52,11 @@ export class Config implements ConfigOTelInterface {
       }
       if (displayLog) {
         logger.info(
-          `Configuration Value: ${field}: ${this[field]} (from ${fromEnv})`
+          `Configuration Value: ${field}: ${this[field]} (from ${fromEnv})`,
         );
       } else {
         logger.info(
-          `Configuration Value: ${field}: ******************** (from ${fromEnv})`
+          `Configuration Value: ${field}: ******************** (from ${fromEnv})`,
         );
       }
     };
@@ -61,6 +64,9 @@ export class Config implements ConfigOTelInterface {
     logger.info(`Configuration Value: VERSION: ${this.VERSION}`);
     setIfSet("LOG_LEVEL");
     setIfSet("COST_FETCH_FREQUENCY");
+    setIfSet("COST_ENABLED_ALIBABACLOUD");
+    setIfSet("COST_ENABLED_AWS");
+    setIfSet("COST_ENABLED_AZURE");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_TRACES");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_METRICS");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_LOGS");

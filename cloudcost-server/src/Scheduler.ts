@@ -1,4 +1,5 @@
 import { SpanStatusCode } from "@opentelemetry/api";
+import { Span } from "@opentelemetry/sdk-trace-base";
 import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
 import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
@@ -9,11 +10,41 @@ const logger = OTelLogger().createModuleLogger("Scheduler");
 
 let config;
 
-const cost = {
+type CloudCost = { total: number; services: Record<string, number> };
+
+const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },
   azure: { total: 0, services: {} },
   alibabacloud: { total: 0, services: {} },
 };
+
+type CloudDefinition = {
+  key: string;
+  label: string;
+  configFlag: keyof Config;
+  fetcher: (span: Span) => Promise<CloudCost>;
+};
+
+const CLOUDS: CloudDefinition[] = [
+  {
+    key: "aws",
+    label: "AWS",
+    configFlag: "COST_ENABLED_AWS",
+    fetcher: AWSGetMonthCurrent,
+  },
+  {
+    key: "azure",
+    label: "Azure",
+    configFlag: "COST_ENABLED_AZURE",
+    fetcher: AzureGetMonthCurrent,
+  },
+  {
+    key: "alibabacloud",
+    label: "AlibabaCloud",
+    configFlag: "COST_ENABLED_ALIBABACLOUD",
+    fetcher: AlibabaCloudGetMonthCurrent,
+  },
+];
 
 export async function SchedulerInit(configIn: Config): Promise<void> {
   config = configIn;
@@ -21,19 +52,18 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
     OTelMeter().createObservableGauge(
       "cloud.cost.month-to-date",
       (observableResult) => {
-        observableResult.observe(cost.aws.total, { cloud: "aws" });
-        observableResult.observe(cost.azure.total, { cloud: "azure" });
-        observableResult.observe(cost.alibabacloud.total, {
-          cloud: "alibabacloud",
+        let total = 0;
+        for (const cloud of CLOUDS) {
+          if (config[cloud.configFlag]) {
+            observableResult.observe(cost[cloud.key].total, {
+              cloud: cloud.key,
+            });
+            total += cost[cloud.key].total;
+          }
+        }
+        observableResult.observe(Number(Number(total).toFixed(2)), {
+          cloud: "total",
         });
-        observableResult.observe(
-          Number(
-            Number(
-              cost.aws.total + cost.azure.total + cost.alibabacloud.total,
-            ).toFixed(2),
-          ),
-          { cloud: "total" },
-        );
       },
       { description: "Current Month Cloud Cost" },
     );
@@ -41,22 +71,18 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
     OTelMeter().createObservableGauge(
       "cloud.cost.service.month-to-date",
       (observableResult) => {
-        Object.entries(cost.aws.services).forEach(([service, amount]) => {
-          observableResult.observe(amount, { cloud: "aws", service });
-        });
-
-        Object.entries(cost.azure.services).forEach(([service, amount]) => {
-          observableResult.observe(amount, { cloud: "azure", service });
-        });
-
-        Object.entries(cost.alibabacloud.services).forEach(
-          ([service, amount]) => {
-            observableResult.observe(amount, {
-              cloud: "alibabacloud",
-              service,
-            });
-          },
-        );
+        for (const cloud of CLOUDS) {
+          if (config[cloud.configFlag]) {
+            Object.entries(cost[cloud.key].services).forEach(
+              ([service, amount]) => {
+                observableResult.observe(amount, {
+                  cloud: cloud.key,
+                  service,
+                });
+              },
+            );
+          }
+        }
       },
       { description: "Current Month Cloud Cost by Service" },
     );
@@ -67,45 +93,32 @@ export async function SchedulerInit(configIn: Config): Promise<void> {
 
 async function SchedulerPricesCheck(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerPricesCheck");
-  await AWSGetMonthCurrent(span)
-    .then((amount) => {
-      cost.aws = amount;
-      span.addEvent("AWS cost: " + JSON.stringify(amount));
-      logger.info(`Current month AWS cost: $${amount.total}`, span);
-      Object.entries(amount.services).forEach(([service, cost]) => {
-        logger.info(`  AWS - ${service}: $${cost}`, span);
-      });
-    })
-    .catch((err) => {
-      logger.error("Error fetching AWS cost", err, span);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    });
-  await AzureGetMonthCurrent(span)
-    .then((amount) => {
-      cost.azure = amount;
-      span.addEvent("Azure cost: " + JSON.stringify(amount));
-      logger.info(`Current month Azure cost: $${amount.total}`, span);
-      Object.entries(amount.services).forEach(([service, cost]) => {
-        logger.info(`  Azure - ${service}: $${cost}`, span);
-      });
-    })
-    .catch((err) => {
-      logger.error("Error fetching Azure cost", err, span);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    });
-  await AlibabaCloudGetMonthCurrent(span)
-    .then((amount) => {
-      cost.alibabacloud = amount;
-      span.addEvent("AlibabaCloud cost: " + JSON.stringify(amount));
-      logger.info(`Current month AlibabaCloud cost: $${amount.total}`, span);
-      Object.entries(amount.services).forEach(([service, cost]) => {
-        logger.info(`  AlibabaCloud - ${service}: $${cost}`, span);
-      });
-    })
-    .catch((err) => {
-      logger.error("Error fetching AlibabaCloud cost", err, span);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    });
+  for (const cloud of CLOUDS) {
+    if (config[cloud.configFlag]) {
+      await cloud
+        .fetcher(span)
+        .then((amount) => {
+          cost[cloud.key] = amount;
+          span.addEvent(`${cloud.label} cost: ` + JSON.stringify(amount));
+          logger.info(
+            `Current month ${cloud.label} cost: $${amount.total}`,
+            span,
+          );
+          Object.entries(amount.services).forEach(([service, amount]) => {
+            logger.info(`${cloud.label} - ${service}: $${amount}`, span);
+          });
+        })
+        .catch((err) => {
+          logger.error(`Error fetching ${cloud.label} cost`, err, span);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        });
+    } else {
+      logger.info(
+        `${cloud.label} cost fetching disabled (${cloud.configFlag}=false)`,
+        span,
+      );
+    }
+  }
 
   span.end();
   setTimeout(() => {
