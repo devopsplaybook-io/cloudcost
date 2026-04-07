@@ -121,10 +121,10 @@ Configuration values can be set via environment variables or through the `config
 
 ## General
 
-| Variable               | Description                                   | Default          |
-| ---------------------- | --------------------------------------------- | ---------------- |
-| `LOG_LEVEL`            | Log level (`debug`, `info`, `warn`, `error`)  | `info`           |
-| `COST_FETCH_FREQUENCY` | Interval between cost fetches in milliseconds | `43200000` (12h) |
+| Variable          | Description                                  | Default                    |
+| ----------------- | -------------------------------------------- | -------------------------- |
+| `LOG_LEVEL`       | Log level (`debug`, `info`, `warn`, `error`) | `info`                     |
+| `COST_FETCH_CRON` | Cron expression for the cost fetch schedule  | `0 */12 * * *` (every 12h) |
 
 ## Cloud Providers
 
