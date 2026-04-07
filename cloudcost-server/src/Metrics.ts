@@ -44,19 +44,6 @@ export function MetricsInit(config: Config): void {
     for (const cloud of CLOUDS) {
       if (config[cloud.configFlag]) {
         OTelMeter().createObservableGauge(
-          `cloud.cost.month-to-date.${cloud.key}`,
-          (observableResult) => {
-            observableResult.observe(
-              parseFloat(cost[cloud.key].total.toFixed(2)),
-              {
-                cloud: cloud.key,
-              },
-            );
-          },
-          { description: `Current Month Cloud Cost for ${cloud.label}` },
-        );
-
-        OTelMeter().createObservableGauge(
           `cloud.cost.service.month-to-date.${cloud.key}`,
           (observableResult) => {
             Object.entries(cost[cloud.key].services).forEach(
