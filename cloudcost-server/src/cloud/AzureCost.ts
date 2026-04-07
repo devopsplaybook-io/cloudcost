@@ -7,7 +7,7 @@ import { CostBreakdownInterface } from "./CostBreakdownInterface";
 const logger = OTelLogger().createModuleLogger("AzureCost");
 
 export async function AzureGetMonthCurrent(
-  context: Span
+  context: Span,
 ): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan("AzureCostGetMonthCurrent", context);
 
@@ -17,7 +17,7 @@ export async function AzureGetMonthCurrent(
   const credential = new ClientSecretCredential(
     tenantId,
     clientId,
-    clientSecret
+    clientSecret,
   );
   const client = new CostManagementClient(credential);
 
@@ -38,30 +38,48 @@ export async function AzureGetMonthCurrent(
         to: end,
       },
       dataset: {
-        granularity: "Monthly",
+        granularity: "None",
         aggregation: {
           totalCost: {
             name: "PreTaxCost",
             function: "Sum",
           },
         },
+        grouping: [
+          {
+            type: "Dimension",
+            name: "ServiceName",
+          },
+        ],
       },
     });
 
-    // Calculate total cost
-    let total = 0;
-    if (
-      result &&
-      result.rows &&
-      result.rows.length > 0 &&
-      result.rows[0].length > 0
-    ) {
-      total = parseFloat(Number(result.rows[0][0]).toFixed(2));
-    }
-
-    // Calculate service breakdown
+    // Calculate service breakdown and total
     const services: Record<string, number> = {};
-    // Add logic to populate services breakdown based on Azure API response
+    let total = 0;
+    if (result?.rows && result.rows.length > 0) {
+      // Columns order: [cost, serviceName, ...] when grouped by ServiceName
+      // Find column indices from result.columns
+      const columns = result.columns || [];
+      const costIdx = columns.findIndex(
+        (c) => c.name === "PreTaxCost" || c.name === "totalCost",
+      );
+      const serviceIdx = columns.findIndex((c) => c.name === "ServiceName");
+      for (const row of result.rows) {
+        const cost = parseFloat(
+          Number(row[costIdx >= 0 ? costIdx : 0]).toFixed(2),
+        );
+        const serviceName =
+          serviceIdx >= 0
+            ? String(row[serviceIdx])
+            : String(row[1] ?? "unknown_service");
+        if (cost !== 0) {
+          services[serviceName] = (services[serviceName] || 0) + cost;
+          total += cost;
+        }
+      }
+      total = parseFloat(total.toFixed(2));
+    }
 
     span.end();
     return { total, services };

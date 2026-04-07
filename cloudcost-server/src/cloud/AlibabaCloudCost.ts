@@ -7,11 +7,11 @@ import { CostBreakdownInterface } from "./CostBreakdownInterface";
 const logger = OTelLogger().createModuleLogger("AlibabaCloudCost");
 
 export async function AlibabaCloudGetMonthCurrent(
-  context: Span
+  context: Span,
 ): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan(
     "AlibabaCloudCostGetMonthCurrent",
-    context
+    context,
   );
 
   const accessKeyId = process.env.ALIBABACLOUD_ACCESS_KEY_ID || "";
@@ -29,13 +29,14 @@ export async function AlibabaCloudGetMonthCurrent(
 
   const now = new Date();
   const billingCycle = `${now.getFullYear()}-${String(
-    now.getMonth() + 1
+    now.getMonth() + 1,
   ).padStart(2, "0")}`;
 
   try {
     const request = new $BssOpenApi.QueryAccountBillRequest({
       billingCycle,
       granularity: "MONTHLY",
+      isGroupByProduct: true,
     });
 
     const result = await client.queryAccountBill(request);
@@ -53,7 +54,11 @@ export async function AlibabaCloudGetMonthCurrent(
     const services: Record<string, number> = {};
     if (result?.body?.data?.items?.item?.length > 0) {
       result.body.data.items.item.forEach((item) => {
-        const serviceName = item.productCode || "unknown_service";
+        const serviceName =
+          item.productName ||
+          item.productCode ||
+          item.pipCode ||
+          "unknown_service";
         const serviceCost = item.pretaxAmount || 0;
         services[serviceName] = (services[serviceName] || 0) + serviceCost;
       });
