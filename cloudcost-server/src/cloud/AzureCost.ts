@@ -74,7 +74,9 @@ export async function AzureGetMonthCurrent(
             ? String(row[serviceIdx])
             : String(row[1] ?? "unknown_service");
         if (cost !== 0) {
-          services[serviceName] = (services[serviceName] || 0) + cost;
+          services[serviceName] = parseFloat(
+            ((services[serviceName] || 0) + cost).toFixed(2),
+          );
           total += cost;
         }
       }

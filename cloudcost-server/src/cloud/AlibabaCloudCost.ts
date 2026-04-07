@@ -60,7 +60,9 @@ export async function AlibabaCloudGetMonthCurrent(
           item.pipCode ||
           "unknown_service";
         const serviceCost = item.pretaxAmount || 0;
-        services[serviceName] = (services[serviceName] || 0) + serviceCost;
+        services[serviceName] = parseFloat(
+          ((services[serviceName] || 0) + serviceCost).toFixed(2),
+        );
       });
     }
 

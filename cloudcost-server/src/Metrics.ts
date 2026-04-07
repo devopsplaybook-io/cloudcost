@@ -9,13 +9,12 @@ export function MetricsInit(config: Config): void {
       let total = 0;
       for (const cloud of CLOUDS) {
         if (config[cloud.configFlag]) {
-          observableResult.observe(cost[cloud.key].total, {
-            cloud: cloud.key,
-          });
-          total += cost[cloud.key].total;
+          const cloudTotal = parseFloat(cost[cloud.key].total.toFixed(2));
+          observableResult.observe(cloudTotal, { cloud: cloud.key });
+          total += cloudTotal;
         }
       }
-      observableResult.observe(Number(Number(total).toFixed(2)), {
+      observableResult.observe(parseFloat(total.toFixed(2)), {
         cloud: "total",
       });
     },
@@ -29,7 +28,10 @@ export function MetricsInit(config: Config): void {
         if (config[cloud.configFlag]) {
           Object.entries(cost[cloud.key].services).forEach(
             ([service, amount]) => {
-              observableResult.observe(amount, { cloud: cloud.key, service });
+              observableResult.observe(parseFloat(amount.toFixed(2)), {
+                cloud: cloud.key,
+                service,
+              });
             },
           );
         }
@@ -44,9 +46,12 @@ export function MetricsInit(config: Config): void {
         OTelMeter().createObservableGauge(
           `cloud.cost.month-to-date.${cloud.key}`,
           (observableResult) => {
-            observableResult.observe(cost[cloud.key].total, {
-              cloud: cloud.key,
-            });
+            observableResult.observe(
+              parseFloat(cost[cloud.key].total.toFixed(2)),
+              {
+                cloud: cloud.key,
+              },
+            );
           },
           { description: `Current Month Cloud Cost for ${cloud.label}` },
         );
@@ -56,7 +61,10 @@ export function MetricsInit(config: Config): void {
           (observableResult) => {
             Object.entries(cost[cloud.key].services).forEach(
               ([service, amount]) => {
-                observableResult.observe(amount, { cloud: cloud.key, service });
+                observableResult.observe(parseFloat(amount.toFixed(2)), {
+                  cloud: cloud.key,
+                  service,
+                });
               },
             );
           },
