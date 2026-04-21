@@ -1,6 +1,7 @@
 const fs = require("fs");
 let devEnv = {};
 if (fs.existsSync("./env-dev.js")) {
+  console.log("Loading dev env");
   devEnv = require("./env-dev");
 }
 

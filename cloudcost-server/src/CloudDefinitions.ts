@@ -2,6 +2,8 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
 import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
+import { GoogleCloudGetMonthCurrent } from "./cloud/GoogleCloudCost";
+import { CloudflareGetMonthCurrent } from "./cloud/CloudflareCost";
 import { Config } from "./Config";
 
 export type CloudCost = { total: number; services: Record<string, number> };
@@ -32,10 +34,24 @@ export const CLOUDS: CloudDefinition[] = [
     configFlag: "COST_ENABLED_ALIBABACLOUD",
     fetcher: AlibabaCloudGetMonthCurrent,
   },
+  {
+    key: "googlecloud",
+    label: "GoogleCloud",
+    configFlag: "COST_ENABLED_GOOGLECLOUD",
+    fetcher: GoogleCloudGetMonthCurrent,
+  },
+  {
+    key: "cloudflare",
+    label: "Cloudflare",
+    configFlag: "COST_ENABLED_CLOUDFLARE",
+    fetcher: CloudflareGetMonthCurrent,
+  },
 ];
 
 export const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },
   azure: { total: 0, services: {} },
   alibabacloud: { total: 0, services: {} },
+  googlecloud: { total: 0, services: {} },
+  cloudflare: { total: 0, services: {} },
 };

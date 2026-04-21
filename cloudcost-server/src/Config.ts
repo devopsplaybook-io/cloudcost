@@ -17,6 +17,9 @@ export class Config implements ConfigOTelInterface {
   public COST_ENABLED_ALIBABACLOUD = false;
   public COST_ENABLED_AWS = false;
   public COST_ENABLED_AZURE = false;
+  public COST_ENABLED_GOOGLECLOUD = false;
+  public COST_ENABLED_DEEPSEEK = false;
+  public COST_ENABLED_CLOUDFLARE = false;
   public OTEL_BY_CLOUD = true;
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS = "";
@@ -44,12 +47,21 @@ export class Config implements ConfigOTelInterface {
     const content = await fse.readJson(this.CONFIG_FILE);
     const setIfSet = (field: string, displayLog = true) => {
       let fromEnv = "defaults";
-      if (process.env[field]) {
-        this[field] = process.env[field];
+      let rawValue: string | undefined;
+      if (process.env[field] !== undefined) {
+        rawValue = process.env[field];
         fromEnv = "environment";
-      } else if (content[field]) {
-        this[field] = content[field];
+      } else if (content[field] !== undefined) {
+        rawValue = String(content[field]);
         fromEnv = "config";
+      }
+      if (rawValue !== undefined) {
+        const defaultValue = this[field];
+        if (typeof defaultValue === "boolean") {
+          this[field] = rawValue.trim().toLowerCase() === "true";
+        } else {
+          this[field] = rawValue;
+        }
       }
       if (displayLog) {
         logger.info(
@@ -68,6 +80,9 @@ export class Config implements ConfigOTelInterface {
     setIfSet("COST_ENABLED_ALIBABACLOUD");
     setIfSet("COST_ENABLED_AWS");
     setIfSet("COST_ENABLED_AZURE");
+    setIfSet("COST_ENABLED_GOOGLECLOUD");
+    setIfSet("COST_ENABLED_DEEPSEEK");
+    setIfSet("COST_ENABLED_CLOUDFLARE");
     setIfSet("OTEL_BY_CLOUD");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_TRACES");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_METRICS");

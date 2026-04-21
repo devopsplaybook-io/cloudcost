@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, and Azure, and exposes the data as OpenTelemetry metrics. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek AI API spending. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -135,6 +135,8 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_AWS`          | Enable AWS cost fetching           | `false` |
 | `COST_ENABLED_AZURE`        | Enable Azure cost fetching         | `false` |
 | `COST_ENABLED_ALIBABACLOUD` | Enable Alibaba Cloud cost fetching | `false` |
+| `COST_ENABLED_GOOGLECLOUD`  | Enable Google Cloud cost fetching  | `false` |
+| `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 
 ### AWS
 
@@ -161,6 +163,28 @@ AWS credentials are resolved via the standard AWS SDK credential chain (environm
 | `ALIBABACLOUD_ACCESS_KEY_ID` | Alibaba Cloud access key ID     |               |
 | `ALIBABACLOUD_SECRET_KEY`    | Alibaba Cloud access key secret |               |
 | `ALIBABACLOUD_REGION_ID`     | Region ID for API calls         | `cn-hangzhou` |
+
+### Google Cloud
+
+Google Cloud does not provide a direct cost API equivalent to AWS Cost Explorer. Cost data is fetched via a BigQuery billing export. You must first [enable billing export to BigQuery](https://cloud.google.com/billing/docs/how-to/export-data-bigquery) in your GCP console, then grant the service account used by CloudCost the `bigquery.dataViewer` role on the billing dataset.
+
+Authentication uses the standard Google Cloud credential chain (environment variable `GOOGLE_APPLICATION_CREDENTIALS`, workload identity, etc.).
+
+| Variable                         | Description                                                              | Default |
+| -------------------------------- | ------------------------------------------------------------------------ | ------- |
+| `GOOGLECLOUD_BILLING_PROJECT_ID` | GCP project ID that hosts the BigQuery billing dataset                   |         |
+| `GOOGLECLOUD_BILLING_DATASET`    | BigQuery dataset name containing the billing export                      |         |
+| `GOOGLECLOUD_BILLING_TABLE`      | BigQuery table name (e.g. `gcp_billing_export_v1_XXXXXX-XXXXXX-XXXXXX`)  |         |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to a service account key JSON file (if not using workload identity) |         |
+
+### DeepSeek
+
+DeepSeek does not provide a monthly usage API. Cost is derived from the account balance: `topped_up_balance - total_balance` gives the total amount spent since the account was created. The monthly token count is tracked locally in a state file that resets each calendar month and can be populated by integrating `saveDeepSeekTokens()` from `DeepSeekCost.ts` into any instrumented call site.
+
+| Variable              | Description                                              | Default                          |
+| --------------------- | -------------------------------------------------------- | -------------------------------- |
+| `DEEPSEEK_API_KEY`    | DeepSeek API key                                         |                                  |
+| `DEEPSEEK_STATE_FILE` | Path to the local JSON file used to persist token counts | `/tmp/deepseek-usage-state.json` |
 
 ## OpenTelemetry
 
@@ -190,5 +214,6 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | ---------------------------------- | ---------------------------------------------- | ------------------ |
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total) | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service      | `cloud`, `service` |
+| `ai.tokens.month-to-date`          | Month-to-date AI token usage (DeepSeek)        | `provider`         |
 
-The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, and `total` (for the combined total across all enabled providers).
+The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `deepseek`, and `total` (for the combined total across all enabled providers).
