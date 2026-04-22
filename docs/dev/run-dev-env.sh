@@ -6,13 +6,6 @@ REPO_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
 
 pm2 delete all || true
 
-
-# Environment Variables
-if [ -f "${REPO_DIR}/docs/dev/env.sh" ]; then
-    . ${REPO_DIR}/docs/dev/env.sh
-fi
-
-
 install_dependencies_in_folder() {
 	local target_dir="$1"
 
@@ -23,7 +16,8 @@ install_dependencies_in_folder() {
 	if [ ! -f package-lock.json ]; then
 		rm -fr node_modules
 		npm install
-	elif [ ! -d node_modules ]; then
+	fi
+	if [ ! -d node_modules ]; then
 		npm ci
 	fi
 }
@@ -33,7 +27,6 @@ for dir in "${REPO_DIR}"/*; do
 		install_dependencies_in_folder "${dir}"
 	fi
 done
-
 
 # Start
 cd "${REPO_DIR}"

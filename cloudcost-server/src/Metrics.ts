@@ -1,8 +1,6 @@
 import { Config } from "./Config";
-import { CLOUDS, cost } from "./CloudDefinitions";
-import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
+import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
-import { OTelTracer } from "./OTelContext";
 
 export function MetricsInit(config: Config): void {
   OTelMeter().createObservableGauge(
@@ -45,23 +43,15 @@ export function MetricsInit(config: Config): void {
   if (config.COST_ENABLED_DEEPSEEK) {
     OTelMeter().createObservableGauge(
       "deepseek.balance.cny",
-      async (observableResult) => {
-        const span = OTelTracer().startSpan("deepseek.balance.observe");
-        const balances = await DeepSeekGetBalance(span);
-        span.end();
-        const entry = balances.find((b) => b.currency === "CNY");
-        observableResult.observe(entry?.total_balance ?? 0);
+      (observableResult) => {
+        observableResult.observe(deepseekBalances["CNY"] ?? 0);
       },
       { description: "DeepSeek account balance in CNY" },
     );
     OTelMeter().createObservableGauge(
       "deepseek.balance.usd",
-      async (observableResult) => {
-        const span = OTelTracer().startSpan("deepseek.balance.observe");
-        const balances = await DeepSeekGetBalance(span);
-        span.end();
-        const entry = balances.find((b) => b.currency === "USD");
-        observableResult.observe(entry?.total_balance ?? 0);
+      (observableResult) => {
+        observableResult.observe(deepseekBalances["USD"] ?? 0);
       },
       { description: "DeepSeek account balance in USD" },
     );

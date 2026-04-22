@@ -1,6 +1,6 @@
 import { SpanStatusCode } from "@opentelemetry/api";
 import { Config } from "./Config";
-import { CLOUDS, cost } from "./CloudDefinitions";
+import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 
@@ -42,10 +42,16 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_DEEPSEEK) {
-    await DeepSeekGetBalance(span).catch((err) => {
-      logger.error("Error fetching DeepSeek balance", err, span);
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    });
+    await DeepSeekGetBalance(span)
+      .then((balances) => {
+        for (const b of balances) {
+          deepseekBalances[b.currency] = b.total_balance;
+        }
+      })
+      .catch((err) => {
+        logger.error("Error fetching DeepSeek balance", err, span);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      });
   } else {
     logger.info(
       "DeepSeek balance fetching disabled (COST_ENABLED_DEEPSEEK=false)",

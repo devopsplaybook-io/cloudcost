@@ -48,6 +48,11 @@ export const CLOUDS: CloudDefinition[] = [
   },
 ];
 
+export const deepseekBalances: Record<string, number> = {
+  CNY: 0,
+  USD: 0,
+};
+
 export const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },
   azure: { total: 0, services: {} },
