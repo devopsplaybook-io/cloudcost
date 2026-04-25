@@ -1,10 +1,11 @@
 {
   "name": "cloudcost",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "",
   "main": "ecosystem.config.js",
   "scripts": {
-    "dev": "./docs/dev/run-dev-env.sh"
+    "dev": "./docs/dev/run-dev-env.sh",
+    "dependencies": "./docs/dev/run-dev-dependencies-rebuild.sh"
   },
   "repository": {
     "type": "git",
