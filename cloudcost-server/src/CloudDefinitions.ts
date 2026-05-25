@@ -6,14 +6,17 @@ import { GoogleCloudGetMonthCurrent } from "./cloud/GoogleCloudCost";
 import { CloudflareGetMonthCurrent } from "./cloud/CloudflareCost";
 import { Config } from "./Config";
 
-export type CloudCost = { total: number; services: Record<string, number> };
+export interface CloudCost {
+  total: number;
+  services: Record<string, number>;
+}
 
-export type CloudDefinition = {
+export interface CloudDefinition {
   key: string;
   label: string;
   configFlag: keyof Config;
   fetcher: (span: Span) => Promise<CloudCost>;
-};
+}
 
 export const CLOUDS: CloudDefinition[] = [
   {

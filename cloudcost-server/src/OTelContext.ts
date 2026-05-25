@@ -32,6 +32,6 @@ export function OTelLogger(): StandardLogger {
   return logger;
 }
 
-export function OTelRequestSpan(req: any): Span {
+export function OTelRequestSpan(req: { tracerSpanApi: Span }): Span {
   return req.tracerSpanApi;
 }

@@ -18,7 +18,7 @@ export function MetricsInit(config: Config): void {
         cloud: "total",
       });
     },
-    { description: "Current Month Cloud Cost" },
+    "Current Month Cloud Cost",
   );
 
   OTelMeter().createObservableGauge(
@@ -37,7 +37,7 @@ export function MetricsInit(config: Config): void {
         }
       }
     },
-    { description: "Current Month Cloud Cost by Service" },
+    "Current Month Cloud Cost by Service",
   );
 
   if (config.COST_ENABLED_DEEPSEEK) {
@@ -46,14 +46,14 @@ export function MetricsInit(config: Config): void {
       (observableResult) => {
         observableResult.observe(deepseekBalances["CNY"] ?? 0);
       },
-      { description: "DeepSeek account balance in CNY" },
+      "DeepSeek account balance in CNY",
     );
     OTelMeter().createObservableGauge(
       "deepseek.balance.usd",
       (observableResult) => {
         observableResult.observe(deepseekBalances["USD"] ?? 0);
       },
-      { description: "DeepSeek account balance in USD" },
+      "DeepSeek account balance in USD",
     );
   }
 
@@ -72,9 +72,7 @@ export function MetricsInit(config: Config): void {
               },
             );
           },
-          {
-            description: `Current Month Cloud Cost by Service for ${cloud.label}`,
-          },
+          `Current Month Cloud Cost by Service for ${cloud.label}`,
         );
       }
     }

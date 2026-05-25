@@ -1,4 +1,5 @@
 import { Config } from "./Config";
+import { OTelLogger } from "./OTelContext";
 import * as fse from "fs-extra";
 
 jest.mock("fs-extra");
@@ -107,7 +108,7 @@ describe("Config", () => {
 
     it("should not log sensitive authorization header value", async () => {
       const loggerInfoSpy = jest.spyOn(
-        require("./OTelContext").OTelLogger().createModuleLogger("config"),
+        OTelLogger().createModuleLogger("config"),
         "info",
       );
 
