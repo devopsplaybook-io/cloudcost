@@ -1,6 +1,5 @@
 import { ConfigOTelInterface } from "@devopsplaybook.io/otel-utils";
 import * as fse from "fs-extra";
-import { v4 as uuidv4 } from "uuid";
 import { OTelLogger } from "./OTelContext";
 import path from "path";
 
