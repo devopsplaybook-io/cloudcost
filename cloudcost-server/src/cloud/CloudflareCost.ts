@@ -1,9 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
-import { OTelLogger, OTelTracer } from "../OTelContext";
+import { OTelTracer } from "../OTelContext";
 import { CostBreakdownInterface } from "./CostBreakdownInterface";
-
-const logger = OTelLogger().createModuleLogger("CloudflareCost");
 
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 
@@ -25,25 +23,22 @@ export async function CloudflareGetMonthCurrent(
 ): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan("CloudflareCostGetMonthCurrent", context);
 
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN || "";
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || "";
-
-  if (!apiToken || !accountId) {
-    logger.error(
-      "Missing Cloudflare configuration: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID",
-      null,
-      span,
-    );
-    span.end();
-    return { total: 0, services: {} };
-  }
-
-  const headers = {
-    Authorization: `Bearer ${apiToken}`,
-    "Content-Type": "application/json",
-  };
-
   try {
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN || "";
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || "";
+
+    if (!apiToken || !accountId) {
+      span.end();
+      throw new Error(
+        "Missing Cloudflare configuration: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID",
+      );
+    }
+
+    const headers = {
+      Authorization: `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+    };
+
     const services: Record<string, number> = {};
 
     // Account-level subscriptions (Workers, R2, Stream, etc.)
@@ -82,9 +77,8 @@ export async function CloudflareGetMonthCurrent(
     span.end();
     return { total, services };
   } catch (err) {
-    logger.error("Error fetching Cloudflare cost", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
-    return { total: 0, services: {} };
+    throw err;
   }
 }

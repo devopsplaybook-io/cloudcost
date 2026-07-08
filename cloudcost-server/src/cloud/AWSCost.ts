@@ -1,5 +1,5 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
-import { OTelLogger, OTelTracer } from "../OTelContext";
+import { OTelTracer } from "../OTelContext";
 import {
   CostExplorerClient,
   GetCostAndUsageCommand,
@@ -7,21 +7,19 @@ import {
 } from "@aws-sdk/client-cost-explorer";
 import { CostBreakdownInterface } from "./CostBreakdownInterface";
 
-const logger = OTelLogger().createModuleLogger("AWSCost");
-
 export async function AWSGetMonthCurrent(
-  context: Span
+  context: Span,
 ): Promise<CostBreakdownInterface> {
   const span = OTelTracer().startSpan("AWSCostGetMonthCurrent", context);
 
-  const client = new CostExplorerClient({});
-  const now = new Date();
-  const start = new Date().toISOString().slice(0, 7) + "-01";
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-    .toISOString()
-    .slice(0, 10);
-
   try {
+    const client = new CostExplorerClient({});
+    const now = new Date();
+    const start = new Date().toISOString().slice(0, 7) + "-01";
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+      .toISOString()
+      .slice(0, 10);
+
     const data = await client.send(
       new GetCostAndUsageCommand({
         TimePeriod: {
@@ -36,7 +34,7 @@ export async function AWSGetMonthCurrent(
             Key: "SERVICE",
           },
         ],
-      })
+      }),
     );
     const resultsByTime = data.ResultsByTime?.[0];
 
@@ -58,9 +56,8 @@ export async function AWSGetMonthCurrent(
     span.end();
     return { total, services };
   } catch (err) {
-    logger.error("Error fetching AWS cost", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
-    return { total: 0, services: {} };
+    throw err;
   }
 }

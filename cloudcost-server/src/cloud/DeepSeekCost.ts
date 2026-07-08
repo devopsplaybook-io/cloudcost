@@ -16,15 +16,14 @@ export async function DeepSeekGetBalance(
 ): Promise<DeepSeekBalance[]> {
   const span = OTelTracer().startSpan("DeepSeekGetBalance", context);
 
-  const apiKey = process.env.DEEPSEEK_API_KEY || "";
-
-  if (!apiKey) {
-    logger.error("Missing DEEPSEEK_API_KEY", null, span);
-    span.end();
-    return [];
-  }
-
   try {
+    const apiKey = process.env.DEEPSEEK_API_KEY || "";
+
+    if (!apiKey) {
+      span.end();
+      throw new Error("Missing DEEPSEEK_API_KEY");
+    }
+
     const response = await axios.get(`${DEEPSEEK_API_BASE}/user/balance`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -52,9 +51,8 @@ export async function DeepSeekGetBalance(
     }
     return balances;
   } catch (err) {
-    logger.error("Error fetching DeepSeek balance", err, span);
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();
-    return [];
+    throw err;
   }
 }

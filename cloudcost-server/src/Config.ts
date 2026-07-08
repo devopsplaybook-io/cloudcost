@@ -58,6 +58,8 @@ export class Config implements ConfigOTelInterface {
         const defaultValue = this[field];
         if (typeof defaultValue === "boolean") {
           this[field] = rawValue.trim().toLowerCase() === "true";
+        } else if (typeof defaultValue === "number") {
+          this[field] = Number(rawValue);
         } else {
           this[field] = rawValue;
         }
