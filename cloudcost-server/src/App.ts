@@ -33,9 +33,18 @@ Promise.resolve().then(async () => {
   CostCollectorInit(config);
   await CostCollectorFetch().finally(() => {
     MetricsInit(config);
-    cron.schedule(config.COST_FETCH_CRON, async () => {
-      await CostCollectorFetch();
+    // Store the scheduled task to prevent garbage collection
+    const cronTask = cron.schedule(config.COST_FETCH_CRON, async () => {
+      logger.info("Cron triggered: fetching cloud costs");
+      try {
+        await CostCollectorFetch();
+      } catch (err) {
+        logger.error("Unexpected error in cron cost fetch", err);
+      }
     });
+    logger.info(`Cost fetch scheduled with cron: ${config.COST_FETCH_CRON}`);
+    // Keep a reference to prevent GC
+    cronTask.start();
   });
   span.end();
 });
