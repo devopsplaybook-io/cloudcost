@@ -5,6 +5,7 @@ import * as cron from "node-cron";
 import { Config } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
 import { MetricsInit } from "./Metrics";
+import { NotificationCheckThreshold, NotificationInit } from "./NotificationService";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -31,13 +32,16 @@ Promise.resolve().then(async () => {
 
   const span = OTelTracer().startSpan("init");
   CostCollectorInit(config);
-  await CostCollectorFetch().finally(() => {
+  NotificationInit(config);
+  await CostCollectorFetch().finally(async () => {
     MetricsInit(config);
+    await NotificationCheckThreshold();
     // Store the scheduled task to prevent garbage collection
     const cronTask = cron.schedule(config.COST_FETCH_CRON, async () => {
       logger.info("Cron triggered: fetching cloud costs");
       try {
         await CostCollectorFetch();
+        await NotificationCheckThreshold();
       } catch (err) {
         logger.error("Unexpected error in cron cost fetch", err);
       }
