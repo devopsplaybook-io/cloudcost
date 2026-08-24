@@ -5,7 +5,10 @@ import * as cron from "node-cron";
 import { Config } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
 import { MetricsInit } from "./Metrics";
-import { NotificationCheckThreshold, NotificationInit } from "./NotificationService";
+import {
+  NotificationCheckThreshold,
+  NotificationInit,
+} from "./NotificationService";
 import {
   OTelLogger,
   OTelSetMeter,
