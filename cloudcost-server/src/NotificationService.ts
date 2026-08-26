@@ -1,11 +1,11 @@
-import { NotificationClient } from "./NotificationClient";
+import { NotificationsClient } from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 import { CLOUDS, cost } from "./CloudDefinitions";
 import { OTelLogger } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("notification-service");
 
-let notificationClient: NotificationClient | null = null;
+let notificationClient: NotificationsClient | null = null;
 let config: Config;
 
 // Track the last notified threshold level to avoid spamming
@@ -14,23 +14,17 @@ let lastNotifiedThresholdMultiple = 0;
 
 /**
  * Initialize the notification service.
+ *
+ * The shared client logs the integration status (enabled or disabled) once
+ * at construction and never throws on partially configured settings.
  */
 export function NotificationInit(configIn: Config): void {
   config = configIn;
-
-  if (config.NOTIFICATIONS_API && config.NOTIFICATIONS_TOKEN) {
-    notificationClient = new NotificationClient({
-      apiEndpoint: config.NOTIFICATIONS_API,
-      apiToken: config.NOTIFICATIONS_TOKEN,
-    });
-    logger.info(
-      `Notification service initialized (threshold: $${config.COST_NOTIFICATION_THRESHOLD})`,
-    );
-  } else {
-    logger.info(
-      "Notification service disabled (NOTIFICATIONS_API or NOTIFICATIONS_TOKEN not set)",
-    );
-  }
+  notificationClient = new NotificationsClient({
+    apiEndpoint: config.NOTIFICATIONS_API,
+    apiToken: config.NOTIFICATIONS_TOKEN,
+    logger,
+  });
 }
 
 /**
@@ -38,7 +32,7 @@ export function NotificationInit(configIn: Config): void {
  * Notifies once per threshold multiple (e.g., $10, $20, $30) to avoid spam.
  */
 export async function NotificationCheckThreshold(): Promise<void> {
-  if (!notificationClient) {
+  if (!notificationClient || !notificationClient.isEnabled()) {
     return;
   }
 
@@ -70,11 +64,13 @@ export async function NotificationCheckThreshold(): Promise<void> {
     const title = `Cloud cost threshold reached: $${thresholdAmount.toFixed(2)}`;
     const body = `Total month-to-date cost has reached $${totalCost.toFixed(2)} (${breakdown})`;
 
-    try {
-      await notificationClient.warning(title, body, "cloudcost");
+    const response = await notificationClient.warning(
+      title,
+      body,
+      "cloudcost",
+    );
+    if (response) {
       logger.info(`Threshold notification sent: ${title}`);
-    } catch (err) {
-      logger.error("Failed to send threshold notification", err);
     }
   }
 }
