@@ -14,6 +14,7 @@ cloudcost/
 │   │   ├── Config.ts          # Config class: env vars > config.json > defaults
 │   │   ├── CloudDefinitions.ts # Registry of cloud providers + in-memory cost state
 │   │   ├── CostCollector.ts   # Orchestrates fetching costs from all enabled providers
+│   │   ├── NotificationService.ts # Threshold notifications via shared NotificationsClient
 │   │   ├── Metrics.ts         # Defines OTel observable gauges from in-memory cost data
 │   │   ├── OTelContext.ts     # Singleton holders for OTel tracer, meter, logger
 │   │   ├── cloud/
@@ -92,7 +93,8 @@ npm run dependencies
 3. `CostCollectorInit(config)` stores the config reference
 4. `CostCollectorFetch()` runs an initial fetch for all enabled providers
 5. `MetricsInit(config)` registers OTel observable gauges that read from in-memory state
-6. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule
+6. `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set)
+7. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule; after each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost crosses the configured threshold (once per threshold multiple)
 
 ### Adding a New Cloud Provider
 

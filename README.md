@@ -195,6 +195,16 @@ Moonshot AI does not provide a monthly usage API. Cost is derived from the accou
 | -------------------- | -------------------- | ------- |
 | `MOONSHOTAI_API_KEY` | Moonshot AI API key  |         |
 
+## Notifications
+
+When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service whenever the combined month-to-date cost of all enabled providers crosses the configured threshold. To avoid spam, only one notification is sent per threshold multiple (e.g. $10, $20, $30). When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
+
+| Variable                      | Description                                                            | Default |
+| ----------------------------- | ---------------------------------------------------------------------- | ------- |
+| `NOTIFICATIONS_API`           | Notifications API endpoint                                             |         |
+| `NOTIFICATIONS_TOKEN`         | Notifications API token                                                |         |
+| `COST_NOTIFICATION_THRESHOLD` | Cost threshold in USD that triggers a notification (`0` to disable)  | `10`    |
+
 ## OpenTelemetry
 
 CloudCost emits traces, metrics, and logs via the OpenTelemetry HTTP protocol. Any OTel-compatible collector can be used. [OTel Light](https://github.com/devopsplaybook-io/otel-light) is a lightweight all-in-one OTel service well suited for small environments and home labs — it exposes the standard HTTP ingestion endpoints and includes a built-in UI to visualize the cost metrics.
