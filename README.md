@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek AI API spending. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek and Moonshot AI API spending. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -137,6 +137,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_ALIBABACLOUD` | Enable Alibaba Cloud cost fetching | `false` |
 | `COST_ENABLED_GOOGLECLOUD`  | Enable Google Cloud cost fetching  | `false` |
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
+| `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
 
 ### AWS
 
@@ -186,6 +187,14 @@ DeepSeek does not provide a monthly usage API. Cost is derived from the account 
 | `DEEPSEEK_API_KEY`    | DeepSeek API key                                         |                                  |
 | `DEEPSEEK_STATE_FILE` | Path to the local JSON file used to persist token counts | `/tmp/deepseek-usage-state.json` |
 
+### Moonshot AI
+
+Moonshot AI does not provide a monthly usage API. Cost is derived from the account balance: the remaining available credit is fetched from the balance API and exposed as a gauge metric.
+
+| Variable             | Description          | Default |
+| -------------------- | -------------------- | ------- |
+| `MOONSHOTAI_API_KEY` | Moonshot AI API key  |         |
+
 ## OpenTelemetry
 
 CloudCost emits traces, metrics, and logs via the OpenTelemetry HTTP protocol. Any OTel-compatible collector can be used. [OTel Light](https://github.com/devopsplaybook-io/otel-light) is a lightweight all-in-one OTel service well suited for small environments and home labs — it exposes the standard HTTP ingestion endpoints and includes a built-in UI to visualize the cost metrics.
@@ -215,5 +224,8 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total) | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service      | `cloud`, `service` |
 | `ai.tokens.month-to-date`          | Month-to-date AI token usage (DeepSeek)        | `provider`         |
+| `deepseek.balance.cny`             | DeepSeek remaining account credit in CNY       |                    |
+| `deepseek.balance.usd`             | DeepSeek remaining account credit in USD       |                    |
+| `moonshotai.balance.usd`           | Moonshot AI remaining account credit in USD    |                    |
 
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `deepseek`, and `total` (for the combined total across all enabled providers).

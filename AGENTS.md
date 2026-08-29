@@ -2,7 +2,7 @@
 
 ## Overview
 
-CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, DeepSeek) and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
+CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, DeepSeek, Moonshot AI) and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
 
 ## Project Structure
 
@@ -23,7 +23,8 @@ cloudcost/
 │   │   │   ├── AlibabaCloudCost.ts       # Alibaba BSS OpenAPI SDK
 │   │   │   ├── GoogleCloudCost.ts        # BigQuery billing export query
 │   │   │   ├── CloudflareCost.ts         # Cloudflare REST API (subscriptions + zones)
-│   │   │   └── DeepSeekCost.ts           # DeepSeek balance API
+│   │   │   ├── DeepSeekCost.ts           # DeepSeek balance API
+│   │   │   └── MoonshotAICost.ts         # Moonshot AI balance API
 │   │   ├── utils-std-ts/      # Shared utilities (JsonUtils, PromisePool, etc.)
 │   │   ├── *.spec.ts          # Unit tests (co-located with source)
 │   │   └── config.json        # Runtime config file (hot-reloaded via watchFile)
@@ -46,7 +47,7 @@ cloudcost/
 - **Process Manager (dev):** PM2 via `ecosystem.config.js`
 - **Scheduling:** `node-cron` for periodic cost fetching (default: every 12h)
 - **Observability:** `@devopsplaybook.io/otel-utils` (local lib in `_libs/otel-utils/`) for OTel traces, metrics, and logs
-- **Cloud SDKs:** `@aws-sdk/client-cost-explorer`, `@azure/arm-costmanagement`, `@alicloud/bssopenapi20171214`, `@google-cloud/bigquery`, `axios` (Cloudflare, DeepSeek)
+- **Cloud SDKs:** `@aws-sdk/client-cost-explorer`, `@azure/arm-costmanagement`, `@alicloud/bssopenapi20171214`, `@google-cloud/bigquery`, `axios` (Cloudflare, DeepSeek, Moonshot AI)
 
 ## Commands
 
@@ -125,8 +126,8 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 - Uses the shared `@devopsplaybook.io/otel-utils` library (source in `_libs/otel-utils/`)
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
-- Metrics are **observable gauges** — they read from in-memory `cost` and `deepseekBalances` objects on each OTel collection cycle
-- Three core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, `deepseek.balance.{cny,usd}`
+- Metrics are **observable gauges** — they read from in-memory `cost`, `deepseekBalances`, and `moonshotAIBalances` objects on each OTel collection cycle
+- Three core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, `deepseek.balance.{cny,usd}`, `moonshotai.balance.usd`
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
 
 ## Testing Conventions
@@ -150,5 +151,6 @@ Multi-stage Dockerfile:
 - `env-dev.js` contains real credentials and is gitignored — never commit it
 - The `cost` object in `CloudDefinitions.ts` is **mutable shared state** — it is written by `CostCollector` and read by `Metrics` gauge callbacks
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
+- Moonshot AI is handled the same way as DeepSeek (account balance only)
 - The `utils-std-ts/` directory contains generic utilities not specific to this project
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class

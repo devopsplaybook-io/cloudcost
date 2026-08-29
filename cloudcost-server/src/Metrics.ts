@@ -1,5 +1,10 @@
 import { Config } from "./Config";
-import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
+import {
+  CLOUDS,
+  cost,
+  deepseekBalances,
+  moonshotAIBalances,
+} from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
 
 export function MetricsInit(config: Config): void {
@@ -54,6 +59,16 @@ export function MetricsInit(config: Config): void {
         observableResult.observe(deepseekBalances["USD"] ?? 0);
       },
       "DeepSeek account balance in USD",
+    );
+  }
+
+  if (config.COST_ENABLED_MOONSHOTAI) {
+    OTelMeter().createObservableGauge(
+      "moonshotai.balance.usd",
+      (observableResult) => {
+        observableResult.observe(moonshotAIBalances["USD"] ?? 0);
+      },
+      "Moonshot AI remaining account credit in USD",
     );
   }
 
