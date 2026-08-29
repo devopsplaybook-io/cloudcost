@@ -56,6 +56,10 @@ export const deepseekBalances: Record<string, number> = {
   USD: 0,
 };
 
+export const moonshotAIBalances: Record<string, number> = {
+  USD: 0,
+};
+
 export const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },
   azure: { total: 0, services: {} },
