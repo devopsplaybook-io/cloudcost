@@ -18,6 +18,7 @@ export class Config implements ConfigOTelInterface {
   public COST_ENABLED_AZURE = false;
   public COST_ENABLED_GOOGLECLOUD = false;
   public COST_ENABLED_DEEPSEEK = false;
+  public COST_ENABLED_MOONSHOTAI = false;
   public COST_ENABLED_CLOUDFLARE = false;
   public OTEL_BY_CLOUD = true;
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
@@ -83,6 +84,7 @@ export class Config implements ConfigOTelInterface {
     setIfSet("COST_ENABLED_AZURE");
     setIfSet("COST_ENABLED_GOOGLECLOUD");
     setIfSet("COST_ENABLED_DEEPSEEK");
+    setIfSet("COST_ENABLED_MOONSHOTAI");
     setIfSet("COST_ENABLED_CLOUDFLARE");
     setIfSet("OTEL_BY_CLOUD");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_TRACES");

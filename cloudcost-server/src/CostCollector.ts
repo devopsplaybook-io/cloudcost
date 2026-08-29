@@ -1,7 +1,8 @@
 import { SpanStatusCode } from "@opentelemetry/api";
 import { Config } from "./Config";
-import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
+import { CLOUDS, cost, deepseekBalances, moonshotAIBalances } from "./CloudDefinitions";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
+import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SchedulerCostCollector");
@@ -55,6 +56,24 @@ export async function CostCollectorFetch(): Promise<void> {
   } else {
     logger.info(
       "DeepSeek balance fetching disabled (COST_ENABLED_DEEPSEEK=false)",
+      span,
+    );
+  }
+
+  if (config.COST_ENABLED_MOONSHOTAI) {
+    await MoonshotAIGetBalance(span)
+      .then((balances) => {
+        for (const b of balances) {
+          moonshotAIBalances[b.currency] = b.available_balance;
+        }
+      })
+      .catch((err) => {
+        logger.error("Error fetching Moonshot AI balance", err, span);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      });
+  } else {
+    logger.info(
+      "Moonshot AI balance fetching disabled (COST_ENABLED_MOONSHOTAI=false)",
       span,
     );
   }

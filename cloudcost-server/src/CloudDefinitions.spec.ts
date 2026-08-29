@@ -1,4 +1,4 @@
-import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
+import { CLOUDS, cost, deepseekBalances, moonshotAIBalances } from "./CloudDefinitions";
 
 describe("CloudDefinitions", () => {
   describe("CLOUDS", () => {
@@ -62,6 +62,12 @@ describe("CloudDefinitions", () => {
   describe("deepseekBalances", () => {
     it("should initialize CNY and USD to 0", () => {
       expect(deepseekBalances).toEqual({ CNY: 0, USD: 0 });
+    });
+  });
+
+  describe("moonshotAIBalances", () => {
+    it("should initialize USD to 0", () => {
+      expect(moonshotAIBalances).toEqual({ USD: 0 });
     });
   });
 });
