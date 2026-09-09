@@ -1,8 +1,15 @@
 import { SpanStatusCode } from "@opentelemetry/api";
 import { Config } from "./Config";
-import { CLOUDS, cost, deepseekBalances, moonshotAIBalances } from "./CloudDefinitions";
+import {
+  CLOUDS,
+  cost,
+  deepseekBalances,
+  moonshotAIBalances,
+  zaiTokenUsage,
+} from "./CloudDefinitions";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
 import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
+import { ZAIGetTokenUsage } from "./cloud/ZAICost";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SchedulerCostCollector");
@@ -74,6 +81,22 @@ export async function CostCollectorFetch(): Promise<void> {
   } else {
     logger.info(
       "Moonshot AI balance fetching disabled (COST_ENABLED_MOONSHOTAI=false)",
+      span,
+    );
+  }
+
+  if (config.COST_ENABLED_ZAI) {
+    await ZAIGetTokenUsage(span)
+      .then((usages) => {
+        zaiTokenUsage.splice(0, zaiTokenUsage.length, ...usages);
+      })
+      .catch((err) => {
+        logger.error("Error fetching Z.AI token usage", err, span);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      });
+  } else {
+    logger.info(
+      "Z.AI token usage fetching disabled (COST_ENABLED_ZAI=false)",
       span,
     );
   }

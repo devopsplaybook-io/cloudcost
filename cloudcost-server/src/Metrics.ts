@@ -4,6 +4,7 @@ import {
   cost,
   deepseekBalances,
   moonshotAIBalances,
+  zaiTokenUsage,
 } from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
 
@@ -69,6 +70,32 @@ export function MetricsInit(config: Config): void {
         observableResult.observe(moonshotAIBalances["USD"] ?? 0);
       },
       "Moonshot AI remaining account credit in USD",
+    );
+  }
+
+  if (config.COST_ENABLED_ZAI) {
+    OTelMeter().createObservableGauge(
+      "ai.tokens.month-to-date",
+      (observableResult) => {
+        let total = 0;
+        for (const usage of zaiTokenUsage) {
+          total += usage.tokens;
+        }
+        observableResult.observe(total, { provider: "zai" });
+      },
+      "Month-to-date AI token usage",
+    );
+    OTelMeter().createObservableGauge(
+      "ai.tokens.model.month-to-date",
+      (observableResult) => {
+        for (const usage of zaiTokenUsage) {
+          observableResult.observe(usage.tokens, {
+            provider: "zai",
+            model: usage.model,
+          });
+        }
+      },
+      "Month-to-date AI token usage by Model",
     );
   }
 
