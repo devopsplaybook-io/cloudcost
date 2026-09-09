@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek and Moonshot AI API spending. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek and Moonshot AI API spending, and the Z.AI token consumption. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -138,6 +138,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_GOOGLECLOUD`  | Enable Google Cloud cost fetching  | `false` |
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 | `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
+| `COST_ENABLED_ZAI`          | Enable Z.AI token usage tracking   | `false` |
 
 ### AWS
 
@@ -195,6 +196,14 @@ Moonshot AI does not provide a monthly usage API. Cost is derived from the accou
 | -------------------- | -------------------- | ------- |
 | `MOONSHOTAI_API_KEY` | Moonshot AI API key  |         |
 
+### Z.AI
+
+Z.AI does not expose a monthly bill through its public API. Token consumption is read from the usage API: the month-to-date number of tokens per model is fetched from `GET https://api.z.ai/api/monitor/usage/model-usage` and exposed as gauge metrics, both as a provider total and broken down by model.
+
+| Variable      | Description   | Default |
+| ------------- | ------------- | ------- |
+| `ZAI_API_KEY` | Z.AI API key  |         |
+
 ## Notifications
 
 When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service whenever the combined month-to-date cost of all enabled providers crosses the configured threshold. To avoid spam, only one notification is sent per threshold multiple (e.g. $10, $20, $30). When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
@@ -233,7 +242,8 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | ---------------------------------- | ---------------------------------------------- | ------------------ |
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total) | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service      | `cloud`, `service` |
-| `ai.tokens.month-to-date`          | Month-to-date AI token usage (DeepSeek)        | `provider`         |
+| `ai.tokens.month-to-date`          | Month-to-date AI token usage (Z.AI)            | `provider`         |
+| `ai.tokens.model.month-to-date`    | Month-to-date AI token usage broken down by model (Z.AI) | `provider`, `model` |
 | `deepseek.balance.cny`             | DeepSeek remaining account credit in CNY       |                    |
 | `deepseek.balance.usd`             | DeepSeek remaining account credit in USD       |                    |
 | `moonshotai.balance.usd`           | Moonshot AI remaining account credit in USD    |                    |

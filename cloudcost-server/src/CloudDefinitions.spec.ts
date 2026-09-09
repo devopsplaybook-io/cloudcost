@@ -1,4 +1,10 @@
-import { CLOUDS, cost, deepseekBalances, moonshotAIBalances } from "./CloudDefinitions";
+import {
+  CLOUDS,
+  cost,
+  deepseekBalances,
+  moonshotAIBalances,
+  zaiTokenUsage,
+} from "./CloudDefinitions";
 
 describe("CloudDefinitions", () => {
   describe("CLOUDS", () => {
@@ -68,6 +74,12 @@ describe("CloudDefinitions", () => {
   describe("moonshotAIBalances", () => {
     it("should initialize USD to 0", () => {
       expect(moonshotAIBalances).toEqual({ USD: 0 });
+    });
+  });
+
+  describe("zaiTokenUsage", () => {
+    it("should initialize to an empty list", () => {
+      expect(zaiTokenUsage).toEqual([]);
     });
   });
 });

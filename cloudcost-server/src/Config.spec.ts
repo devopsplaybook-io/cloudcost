@@ -29,6 +29,7 @@ describe("Config", () => {
       expect(config.COST_ENABLED_GOOGLECLOUD).toBe(false);
       expect(config.COST_ENABLED_DEEPSEEK).toBe(false);
       expect(config.COST_ENABLED_MOONSHOTAI).toBe(false);
+      expect(config.COST_ENABLED_ZAI).toBe(false);
       expect(config.COST_ENABLED_CLOUDFLARE).toBe(false);
       expect(config.OTEL_BY_CLOUD).toBe(true);
     });
