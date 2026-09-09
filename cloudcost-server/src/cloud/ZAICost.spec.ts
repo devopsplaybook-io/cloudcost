@@ -8,6 +8,7 @@ jest.mock("../OTelContext", () => ({
   OTelLogger: () => ({
     createModuleLogger: () => ({
       info: jest.fn(),
+      warn: jest.fn(),
       error: jest.fn(),
     }),
   }),
@@ -110,7 +111,7 @@ describe("ZAICost", () => {
       expect(usages).toEqual([]);
     });
 
-    it("should throw when the API responds with success=false", async () => {
+    it("should return an empty list when the API responds with success=false", async () => {
       process.env.ZAI_API_KEY = "sk-test";
       mockedAxios.get.mockResolvedValueOnce({
         data: {
@@ -120,9 +121,22 @@ describe("ZAICost", () => {
         },
       });
 
-      await expect(ZAIGetTokenUsage(fakeSpan)).rejects.toThrow(
-        "Z.AI usage API error: token expired or incorrect",
-      );
+      const usages = await ZAIGetTokenUsage(fakeSpan);
+      expect(usages).toEqual([]);
+    });
+
+    it("should return an empty list when the user has no coding plan", async () => {
+      process.env.ZAI_API_KEY = "sk-test";
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          success: false,
+          code: 500,
+          msg: "当前用户不存在coding plan",
+        },
+      });
+
+      const usages = await ZAIGetTokenUsage(fakeSpan);
+      expect(usages).toEqual([]);
     });
 
     it("should re-throw API errors", async () => {

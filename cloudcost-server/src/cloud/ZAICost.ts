@@ -60,11 +60,15 @@ export async function ZAIGetTokenUsage(
 
     const data = response.data;
     // The usage API answers HTTP 200 with success=false on errors, so the
-    // body must be checked before reading the usage data.
+    // body must be checked before reading the usage data. Business-level
+    // errors (e.g. "no coding plan") are expected when the account has no
+    // active subscription — log a warning and return empty instead of
+    // throwing, so the fetcher stays non-fatal like the other providers.
     if (data?.success !== true || data?.code !== 200) {
-      throw new Error(
-        `Z.AI usage API error: ${data?.msg || "invalid response"}`,
-      );
+      const msg = data?.msg || "invalid response";
+      logger.warn(`Z.AI usage API returned success=false: ${msg}`, span);
+      span.end();
+      return [];
     }
 
     const usages: ZAITokenUsage[] = [];
