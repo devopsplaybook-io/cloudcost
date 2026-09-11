@@ -130,7 +130,7 @@ Priority order: **environment variables > `config.json` > class defaults**.
 - Uses the shared `@devopsplaybook.io/otel-utils` library (source in `_libs/otel-utils/`)
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
 - Metrics are **observable gauges** — they read from in-memory `cost`, `deepseekBalances`, `moonshotAIBalances`, and `zaiBalances` objects on each OTel collection cycle
-- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency, summing DeepSeek, Moonshot AI, and Z.AI; a currency is only reported when at least one enabled provider has credit in it)
+- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
 
 ## Testing Conventions

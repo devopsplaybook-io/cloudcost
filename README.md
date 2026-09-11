@@ -242,9 +242,9 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------ |
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
-| `ai.balance.usd`                   | Remaining LLM account credit in USD, summed over all enabled LLM providers (DeepSeek, Moonshot AI, Z.AI) |                    |
-| `ai.balance.cny`                   | Remaining LLM account credit in CNY, summed over all enabled LLM providers                               |                    |
+| `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI) plus `total` | `provider`         |
+| `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
 
-The consolidated LLM credit metrics are reported per currency, and only when at least one enabled LLM provider currently has credit in that currency (otherwise no data point is emitted for it).
+The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per LLM provider that currently has credit in that currency, plus a `total` data point summing them. A currency with no provider credit emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, and `total`.
 
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `deepseek`, and `total` (for the combined total across all enabled providers).

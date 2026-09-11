@@ -10,12 +10,25 @@ import { OTelMeter } from "./OTelContext";
 
 // LLM providers reporting a remaining account credit, keyed by currency.
 const LLM_BALANCE_SOURCES: {
+  provider: string;
   configFlag: keyof Config;
   balances: Record<string, number>;
 }[] = [
-  { configFlag: "COST_ENABLED_DEEPSEEK", balances: deepseekBalances },
-  { configFlag: "COST_ENABLED_MOONSHOTAI", balances: moonshotAIBalances },
-  { configFlag: "COST_ENABLED_ZAI", balances: zaiBalances },
+  {
+    provider: "deepseek",
+    configFlag: "COST_ENABLED_DEEPSEEK",
+    balances: deepseekBalances,
+  },
+  {
+    provider: "moonshotai",
+    configFlag: "COST_ENABLED_MOONSHOTAI",
+    balances: moonshotAIBalances,
+  },
+  {
+    provider: "zai",
+    configFlag: "COST_ENABLED_ZAI",
+    balances: zaiBalances,
+  },
 ];
 
 export function MetricsInit(config: Config): void {
@@ -56,9 +69,11 @@ export function MetricsInit(config: Config): void {
     "Current Month Cloud Cost by Service",
   );
 
-  // One consolidated credit metric per currency: all enabled LLM providers
-  // are summed together, and a currency is only reported when at least one
-  // of them currently has credit in it.
+  // One consolidated credit metric per currency, with one data point per
+  // LLM provider (provider attribute) plus a total, mirroring the
+  // cloud.cost.month-to-date pattern. A data point is only reported when
+  // the provider currently has credit in that currency, and the currency
+  // only when at least one of them does.
   const currencies = new Set<string>();
   for (const source of LLM_BALANCE_SOURCES) {
     if (config[source.configFlag]) {
@@ -79,12 +94,17 @@ export function MetricsInit(config: Config): void {
           }
           const value = source.balances[currency];
           if (value !== undefined && value > 0) {
+            observableResult.observe(parseFloat(value.toFixed(2)), {
+              provider: source.provider,
+            });
             total += value;
             hasCredit = true;
           }
         }
         if (hasCredit) {
-          observableResult.observe(parseFloat(total.toFixed(2)));
+          observableResult.observe(parseFloat(total.toFixed(2)), {
+            provider: "total",
+          });
         }
       },
       `LLM remaining account credit in ${currency}`,
