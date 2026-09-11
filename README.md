@@ -192,27 +192,27 @@ DeepSeek does not provide a monthly usage API. Cost is derived from the account 
 
 Moonshot AI does not provide a monthly usage API. Cost is derived from the account balance: the remaining available credit is fetched from the balance API and exposed as a gauge metric.
 
-| Variable             | Description          | Default |
-| -------------------- | -------------------- | ------- |
-| `MOONSHOTAI_API_KEY` | Moonshot AI API key  |         |
+| Variable             | Description         | Default |
+| -------------------- | ------------------- | ------- |
+| `MOONSHOTAI_API_KEY` | Moonshot AI API key |         |
 
 ### Z.AI
 
 Z.AI does not expose a monthly bill through its public API. The remaining account credit is read from the console account API: the available balance (USD) is fetched from `GET https://api.z.ai/api/biz/account/query-customer-account-report` and exposed as a gauge metric. Business-level errors (e.g. an invalid key) are logged as warnings and result in an empty balance instead of a failure.
 
-| Variable      | Description   | Default |
-| ------------- | ------------- | ------- |
-| `ZAI_API_KEY` | Z.AI API key  |         |
+| Variable      | Description  | Default |
+| ------------- | ------------ | ------- |
+| `ZAI_API_KEY` | Z.AI API key |         |
 
 ## Notifications
 
 When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service whenever the combined month-to-date cost of all enabled providers crosses the configured threshold. To avoid spam, only one notification is sent per threshold multiple (e.g. $10, $20, $30). When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
 
-| Variable                      | Description                                                            | Default |
-| ----------------------------- | ---------------------------------------------------------------------- | ------- |
-| `NOTIFICATIONS_API`           | Notifications API endpoint                                             |         |
-| `NOTIFICATIONS_TOKEN`         | Notifications API token                                                |         |
-| `COST_NOTIFICATION_THRESHOLD` | Cost threshold in USD that triggers a notification (`0` to disable)  | `10`    |
+| Variable                      | Description                                                         | Default |
+| ----------------------------- | ------------------------------------------------------------------- | ------- |
+| `NOTIFICATIONS_API`           | Notifications API endpoint                                          |         |
+| `NOTIFICATIONS_TOKEN`         | Notifications API token                                             |         |
+| `COST_NOTIFICATION_THRESHOLD` | Cost threshold in USD that triggers a notification (`0` to disable) | `10`    |
 
 ## OpenTelemetry
 
@@ -238,12 +238,12 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 
 # Metrics
 
-| Metric name                        | Description                                    | Labels             |
-| ---------------------------------- | ---------------------------------------------- | ------------------ |
-| `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total) | `cloud`            |
-| `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service      | `cloud`, `service` |
-| `ai.balance.usd`                   | Remaining LLM account credit in USD, summed over all enabled LLM providers (DeepSeek, Moonshot AI, Z.AI) |        |
-| `ai.balance.cny`                   | Remaining LLM account credit in CNY, summed over all enabled LLM providers |                     |
+| Metric name                        | Description                                                                                              | Labels             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------ |
+| `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
+| `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
+| `ai.balance.usd`                   | Remaining LLM account credit in USD, summed over all enabled LLM providers (DeepSeek, Moonshot AI, Z.AI) |                    |
+| `ai.balance.cny`                   | Remaining LLM account credit in CNY, summed over all enabled LLM providers                               |                    |
 
 The consolidated LLM credit metrics are reported per currency, and only when at least one enabled LLM provider currently has credit in that currency (otherwise no data point is emitted for it).
 

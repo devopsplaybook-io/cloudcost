@@ -55,9 +55,7 @@ describe("ZAICost", () => {
 
       const balances = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([
-        { currency: "USD", available_balance: 9.92 },
-      ]);
+      expect(balances).toEqual([{ currency: "USD", available_balance: 9.92 }]);
       expect(mockedAxios.get).toHaveBeenCalledWith(
         "https://api.z.ai/api/biz/account/query-customer-account-report",
         expect.objectContaining({
@@ -98,9 +96,7 @@ describe("ZAICost", () => {
       process.env.ZAI_API_KEY = "sk-test";
       mockedAxios.get.mockRejectedValueOnce(new Error("500 Server Error"));
 
-      await expect(ZAIGetBalance(fakeSpan)).rejects.toThrow(
-        "500 Server Error",
-      );
+      await expect(ZAIGetBalance(fakeSpan)).rejects.toThrow("500 Server Error");
     });
   });
 });
