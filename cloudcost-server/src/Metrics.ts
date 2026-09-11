@@ -4,9 +4,19 @@ import {
   cost,
   deepseekBalances,
   moonshotAIBalances,
-  zaiTokenUsage,
+  zaiBalances,
 } from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
+
+// LLM providers reporting a remaining account credit, keyed by currency.
+const LLM_BALANCE_SOURCES: {
+  configFlag: keyof Config;
+  balances: Record<string, number>;
+}[] = [
+  { configFlag: "COST_ENABLED_DEEPSEEK", balances: deepseekBalances },
+  { configFlag: "COST_ENABLED_MOONSHOTAI", balances: moonshotAIBalances },
+  { configFlag: "COST_ENABLED_ZAI", balances: zaiBalances },
+];
 
 export function MetricsInit(config: Config): void {
   OTelMeter().createObservableGauge(
@@ -46,56 +56,38 @@ export function MetricsInit(config: Config): void {
     "Current Month Cloud Cost by Service",
   );
 
-  if (config.COST_ENABLED_DEEPSEEK) {
-    OTelMeter().createObservableGauge(
-      "deepseek.balance.cny",
-      (observableResult) => {
-        observableResult.observe(deepseekBalances["CNY"] ?? 0);
-      },
-      "DeepSeek account balance in CNY",
-    );
-    OTelMeter().createObservableGauge(
-      "deepseek.balance.usd",
-      (observableResult) => {
-        observableResult.observe(deepseekBalances["USD"] ?? 0);
-      },
-      "DeepSeek account balance in USD",
-    );
+  // One consolidated credit metric per currency: all enabled LLM providers
+  // are summed together, and a currency is only reported when at least one
+  // of them currently has credit in it.
+  const currencies = new Set<string>();
+  for (const source of LLM_BALANCE_SOURCES) {
+    if (config[source.configFlag]) {
+      for (const currency of Object.keys(source.balances)) {
+        currencies.add(currency);
+      }
+    }
   }
-
-  if (config.COST_ENABLED_MOONSHOTAI) {
+  for (const currency of currencies) {
     OTelMeter().createObservableGauge(
-      "moonshotai.balance.usd",
-      (observableResult) => {
-        observableResult.observe(moonshotAIBalances["USD"] ?? 0);
-      },
-      "Moonshot AI remaining account credit in USD",
-    );
-  }
-
-  if (config.COST_ENABLED_ZAI) {
-    OTelMeter().createObservableGauge(
-      "ai.tokens.month-to-date",
+      `ai.balance.${currency.toLowerCase()}`,
       (observableResult) => {
         let total = 0;
-        for (const usage of zaiTokenUsage) {
-          total += usage.tokens;
+        let hasCredit = false;
+        for (const source of LLM_BALANCE_SOURCES) {
+          if (!config[source.configFlag]) {
+            continue;
+          }
+          const value = source.balances[currency];
+          if (value !== undefined && value > 0) {
+            total += value;
+            hasCredit = true;
+          }
         }
-        observableResult.observe(total, { provider: "zai" });
-      },
-      "Month-to-date AI token usage",
-    );
-    OTelMeter().createObservableGauge(
-      "ai.tokens.model.month-to-date",
-      (observableResult) => {
-        for (const usage of zaiTokenUsage) {
-          observableResult.observe(usage.tokens, {
-            provider: "zai",
-            model: usage.model,
-          });
+        if (hasCredit) {
+          observableResult.observe(parseFloat(total.toFixed(2)));
         }
       },
-      "Month-to-date AI token usage by Model",
+      `LLM remaining account credit in ${currency}`,
     );
   }
 

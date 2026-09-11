@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks DeepSeek and Moonshot AI API spending, and the Z.AI token consumption. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks the remaining account credit of the DeepSeek, Moonshot AI, and Z.AI LLM APIs. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -138,7 +138,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_GOOGLECLOUD`  | Enable Google Cloud cost fetching  | `false` |
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 | `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
-| `COST_ENABLED_ZAI`          | Enable Z.AI token usage tracking   | `false` |
+| `COST_ENABLED_ZAI`          | Enable Z.AI credit tracking        | `false` |
 
 ### AWS
 
@@ -198,7 +198,7 @@ Moonshot AI does not provide a monthly usage API. Cost is derived from the accou
 
 ### Z.AI
 
-Z.AI does not expose a monthly bill through its public API. Token consumption is read from the usage API: the month-to-date number of tokens per model is fetched from `GET https://api.z.ai/api/monitor/usage/model-usage` and exposed as gauge metrics, both as a provider total and broken down by model.
+Z.AI does not expose a monthly bill through its public API. The remaining account credit is read from the console account API: the available balance (USD) is fetched from `GET https://api.z.ai/api/biz/account/query-customer-account-report` and exposed as a gauge metric. Business-level errors (e.g. an invalid key) are logged as warnings and result in an empty balance instead of a failure.
 
 | Variable      | Description   | Default |
 | ------------- | ------------- | ------- |
@@ -242,10 +242,9 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | ---------------------------------- | ---------------------------------------------- | ------------------ |
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total) | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service      | `cloud`, `service` |
-| `ai.tokens.month-to-date`          | Month-to-date AI token usage (Z.AI)            | `provider`         |
-| `ai.tokens.model.month-to-date`    | Month-to-date AI token usage broken down by model (Z.AI) | `provider`, `model` |
-| `deepseek.balance.cny`             | DeepSeek remaining account credit in CNY       |                    |
-| `deepseek.balance.usd`             | DeepSeek remaining account credit in USD       |                    |
-| `moonshotai.balance.usd`           | Moonshot AI remaining account credit in USD    |                    |
+| `ai.balance.usd`                   | Remaining LLM account credit in USD, summed over all enabled LLM providers (DeepSeek, Moonshot AI, Z.AI) |        |
+| `ai.balance.cny`                   | Remaining LLM account credit in CNY, summed over all enabled LLM providers |                     |
+
+The consolidated LLM credit metrics are reported per currency, and only when at least one enabled LLM provider currently has credit in that currency (otherwise no data point is emitted for it).
 
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `deepseek`, and `total` (for the combined total across all enabled providers).

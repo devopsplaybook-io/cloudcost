@@ -3,7 +3,7 @@ import {
   cost,
   deepseekBalances,
   moonshotAIBalances,
-  zaiTokenUsage,
+  zaiBalances,
 } from "./CloudDefinitions";
 
 describe("CloudDefinitions", () => {
@@ -77,9 +77,9 @@ describe("CloudDefinitions", () => {
     });
   });
 
-  describe("zaiTokenUsage", () => {
-    it("should initialize to an empty list", () => {
-      expect(zaiTokenUsage).toEqual([]);
+  describe("zaiBalances", () => {
+    it("should initialize USD to 0", () => {
+      expect(zaiBalances).toEqual({ USD: 0 });
     });
   });
 });

@@ -4,7 +4,6 @@ import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
 import { GoogleCloudGetMonthCurrent } from "./cloud/GoogleCloudCost";
 import { CloudflareGetMonthCurrent } from "./cloud/CloudflareCost";
-import { ZAITokenUsage } from "./cloud/ZAICost";
 import { Config } from "./Config";
 
 export interface CloudCost {
@@ -61,7 +60,9 @@ export const moonshotAIBalances: Record<string, number> = {
   USD: 0,
 };
 
-export const zaiTokenUsage: ZAITokenUsage[] = [];
+export const zaiBalances: Record<string, number> = {
+  USD: 0,
+};
 
 export const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },

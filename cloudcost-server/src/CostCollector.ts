@@ -5,11 +5,11 @@ import {
   cost,
   deepseekBalances,
   moonshotAIBalances,
-  zaiTokenUsage,
+  zaiBalances,
 } from "./CloudDefinitions";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
 import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
-import { ZAIGetTokenUsage } from "./cloud/ZAICost";
+import { ZAIGetBalance } from "./cloud/ZAICost";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SchedulerCostCollector");
@@ -86,17 +86,19 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_ZAI) {
-    await ZAIGetTokenUsage(span)
-      .then((usages) => {
-        zaiTokenUsage.splice(0, zaiTokenUsage.length, ...usages);
+    await ZAIGetBalance(span)
+      .then((balances) => {
+        for (const b of balances) {
+          zaiBalances[b.currency] = b.available_balance;
+        }
       })
       .catch((err) => {
-        logger.error("Error fetching Z.AI token usage", err, span);
+        logger.error("Error fetching Z.AI balance", err, span);
         span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
       });
   } else {
     logger.info(
-      "Z.AI token usage fetching disabled (COST_ENABLED_ZAI=false)",
+      "Z.AI balance fetching disabled (COST_ENABLED_ZAI=false)",
       span,
     );
   }
