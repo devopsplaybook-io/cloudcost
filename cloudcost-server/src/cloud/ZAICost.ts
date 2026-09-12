@@ -6,24 +6,13 @@ const logger = OTelLogger().createModuleLogger("ZAICost");
 
 const ZAI_API_BASE = "https://api.z.ai";
 
-export interface ZAITokenUsage {
-  model: string;
-  tokens: number;
+export interface ZAIBalance {
+  currency: string;
+  available_balance: number;
 }
 
-// The usage API expects local timestamps formatted as "YYYY-MM-DD HH:mm:ss".
-function formatTimestamp(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  );
-}
-
-export async function ZAIGetTokenUsage(
-  context: Span,
-): Promise<ZAITokenUsage[]> {
-  const span = OTelTracer().startSpan("ZAIGetTokenUsage", context);
+export async function ZAIGetBalance(context: Span): Promise<ZAIBalance[]> {
+  const span = OTelTracer().startSpan("ZAIGetBalance", context);
 
   try {
     const apiKey = process.env.ZAI_API_KEY || "";
@@ -33,23 +22,8 @@ export async function ZAIGetTokenUsage(
       throw new Error("Missing ZAI_API_KEY");
     }
 
-    const now = new Date();
-    // Month-to-date window, rounded up to the end of the current hour so the
-    // bucket in progress is included.
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      now.getHours(),
-      59,
-      59,
-    );
-
     const response = await axios.get(
-      `${ZAI_API_BASE}/api/monitor/usage/model-usage` +
-        `?startTime=${encodeURIComponent(formatTimestamp(start))}` +
-        `&endTime=${encodeURIComponent(formatTimestamp(end))}`,
+      `${ZAI_API_BASE}/api/biz/account/query-customer-account-report`,
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -59,40 +33,34 @@ export async function ZAIGetTokenUsage(
     );
 
     const data = response.data;
-    // The usage API answers HTTP 200 with success=false on errors, so the
-    // body must be checked before reading the usage data. Business-level
-    // errors (e.g. "no coding plan") are expected when the account has no
-    // active subscription — log a warning and return empty instead of
-    // throwing, so the fetcher stays non-fatal like the other providers.
+    // The account API answers HTTP 200 with success=false on business errors
+    // (e.g. code 1000 "Authentication Failed" for an invalid key), so the
+    // envelope must be checked before reading the balance. Such errors are
+    // non-fatal: log a warning and return empty instead of throwing, so the
+    // fetcher stays non-fatal like the other providers.
     if (data?.success !== true || data?.code !== 200) {
       const msg = data?.msg || "invalid response";
-      logger.warn(`Z.AI usage API returned success=false: ${msg}`, span);
+      logger.warn(`Z.AI account API returned success=false: ${msg}`, span);
       span.end();
       return [];
     }
 
-    const usages: ZAITokenUsage[] = [];
+    const balances: ZAIBalance[] = [];
 
-    if (Array.isArray(data?.data?.modelDataList)) {
-      for (const model of data.data.modelDataList) {
-        const tokens = Array.isArray(model?.tokensUsage)
-          ? model.tokensUsage.reduce(
-              (sum: number, value: number) => sum + (value > 0 ? value : 0),
-              0,
-            )
-          : 0;
-        usages.push({
-          model: (model.modelName as string) || "unknown",
-          tokens,
-        });
-      }
+    if (data?.data?.availableBalance !== undefined) {
+      balances.push({
+        currency: "USD",
+        available_balance: parseFloat(
+          parseFloat(data.data.availableBalance).toFixed(2),
+        ),
+      });
     }
 
     span.end();
-    for (const u of usages) {
-      logger.info(`Z.AI month-to-date tokens: ${u.tokens} (${u.model})`, span);
+    for (const b of balances) {
+      logger.info(`Z.AI balance: ${b.available_balance} ${b.currency}`, span);
     }
-    return usages;
+    return balances;
   } catch (err) {
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();

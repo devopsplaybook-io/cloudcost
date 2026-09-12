@@ -2,7 +2,7 @@
 
 ## Overview
 
-CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, DeepSeek, Moonshot AI) and the Z.AI token consumption, and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
+CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, DeepSeek, Moonshot AI, Z.AI) and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
 
 ## Project Structure
 
@@ -26,7 +26,7 @@ cloudcost/
 │   │   │   ├── CloudflareCost.ts         # Cloudflare REST API (subscriptions + zones)
 │   │   │   ├── DeepSeekCost.ts           # DeepSeek balance API
 │   │   │   ├── MoonshotAICost.ts         # Moonshot AI balance API
-│   │   │   └── ZAICost.ts                # Z.AI usage API (month-to-date tokens per model)
+│   │   │   └── ZAICost.ts                # Z.AI account API (remaining account credit)
 │   │   ├── utils-std-ts/      # Shared utilities (JsonUtils, PromisePool, etc.)
 │   │   ├── *.spec.ts          # Unit tests (co-located with source)
 │   │   └── config.json        # Runtime config file (hot-reloaded via watchFile)
@@ -129,8 +129,8 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 - Uses the shared `@devopsplaybook.io/otel-utils` library (source in `_libs/otel-utils/`)
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
-- Metrics are **observable gauges** — they read from in-memory `cost`, `deepseekBalances`, `moonshotAIBalances`, and `zaiTokenUsage` objects on each OTel collection cycle
-- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, `deepseek.balance.{cny,usd}`, `moonshotai.balance.usd`, `ai.tokens.month-to-date`, `ai.tokens.model.month-to-date`
+- Metrics are **observable gauges** — they read from in-memory `cost`, `deepseekBalances`, `moonshotAIBalances`, and `zaiBalances` objects on each OTel collection cycle
+- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
 
 ## Testing Conventions
@@ -155,6 +155,6 @@ Multi-stage Dockerfile:
 - The `cost` object in `CloudDefinitions.ts` is **mutable shared state** — it is written by `CostCollector` and read by `Metrics` gauge callbacks
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
-- Z.AI is handled the same way (month-to-date token usage per model, fetched from `api.z.ai/api/monitor/usage/model-usage`)
+- Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)
 - The `utils-std-ts/` directory contains generic utilities not specific to this project
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class
