@@ -11,6 +11,7 @@ describe("Config", () => {
     jest.clearAllMocks();
     delete process.env.LOG_LEVEL;
     delete process.env.COST_FETCH_CRON;
+    delete process.env.COST_NOTIFICATION_SUMMARY_SCHEDULE;
     delete process.env.COST_ENABLED_AWS;
     delete process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES;
     delete process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
@@ -90,7 +91,29 @@ describe("Config", () => {
 
       expect(config.LOG_LEVEL).toBe("info");
       expect(config.COST_FETCH_CRON).toBe("0 */12 * * *");
+      expect(config.COST_NOTIFICATION_SUMMARY_SCHEDULE).toBe("");
       expect(config.COST_ENABLED_AWS).toBe(false);
+    });
+
+    it("should load COST_NOTIFICATION_SUMMARY_SCHEDULE from environment variables", async () => {
+      process.env.COST_NOTIFICATION_SUMMARY_SCHEDULE = "0 0 * * 1";
+      mockedFse.readJson.mockResolvedValueOnce({});
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_NOTIFICATION_SUMMARY_SCHEDULE).toBe("0 0 * * 1");
+    });
+
+    it("should load COST_NOTIFICATION_SUMMARY_SCHEDULE from config file", async () => {
+      mockedFse.readJson.mockResolvedValueOnce({
+        COST_NOTIFICATION_SUMMARY_SCHEDULE: "0 0 * * 1",
+      });
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_NOTIFICATION_SUMMARY_SCHEDULE).toBe("0 0 * * 1");
     });
 
     it("should handle boolean fields correctly", async () => {

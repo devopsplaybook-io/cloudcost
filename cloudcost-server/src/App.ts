@@ -8,6 +8,7 @@ import { MetricsInit } from "./Metrics";
 import {
   NotificationCheckThreshold,
   NotificationInit,
+  NotificationSendSummary,
 } from "./NotificationService";
 import {
   OTelLogger,
@@ -52,6 +53,36 @@ Promise.resolve().then(async () => {
     logger.info(`Cost fetch scheduled with cron: ${config.COST_FETCH_CRON}`);
     // Keep a reference to prevent GC
     cronTask.start();
+
+    if (config.COST_NOTIFICATION_SUMMARY_SCHEDULE) {
+      if (cron.validate(config.COST_NOTIFICATION_SUMMARY_SCHEDULE)) {
+        const summaryCronTask = cron.schedule(
+          config.COST_NOTIFICATION_SUMMARY_SCHEDULE,
+          async () => {
+            logger.info(
+              "Cron triggered: sending monthly cost summary notification",
+            );
+            try {
+              await NotificationSendSummary();
+            } catch (err) {
+              logger.error(
+                "Unexpected error in cron monthly cost summary",
+                err,
+              );
+            }
+          },
+          { timezone: "UTC" },
+        );
+        summaryCronTask.start();
+        logger.info(
+          `Cost summary notification scheduled with cron: ${config.COST_NOTIFICATION_SUMMARY_SCHEDULE} (UTC)`,
+        );
+      } else {
+        logger.error(
+          `Invalid COST_NOTIFICATION_SUMMARY_SCHEDULE cron expression: ${config.COST_NOTIFICATION_SUMMARY_SCHEDULE}, monthly cost summary notification disabled`,
+        );
+      }
+    }
   });
   span.end();
 });

@@ -13,6 +13,7 @@ export class Config implements ConfigOTelInterface {
   public VERSION = "1";
   public LOG_LEVEL = "info";
   public COST_FETCH_CRON = "0 */12 * * *";
+  public COST_NOTIFICATION_SUMMARY_SCHEDULE = "";
   public COST_ENABLED_ALIBABACLOUD = false;
   public COST_ENABLED_AWS = false;
   public COST_ENABLED_AZURE = false;
@@ -83,6 +84,7 @@ export class Config implements ConfigOTelInterface {
     logger.info(`Configuration Value: VERSION: ${this.VERSION}`);
     setIfSet("LOG_LEVEL");
     setIfSet("COST_FETCH_CRON");
+    setIfSet("COST_NOTIFICATION_SUMMARY_SCHEDULE");
     setIfSet("COST_ENABLED_ALIBABACLOUD");
     setIfSet("COST_ENABLED_AWS");
     setIfSet("COST_ENABLED_AZURE");

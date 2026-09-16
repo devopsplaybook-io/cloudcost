@@ -9,7 +9,7 @@ import {
 import { OTelMeter } from "./OTelContext";
 
 // LLM providers reporting a remaining account credit, keyed by currency.
-const LLM_BALANCE_SOURCES: {
+export const LLM_BALANCE_SOURCES: {
   provider: string;
   configFlag: keyof Config;
   balances: Record<string, number>;
