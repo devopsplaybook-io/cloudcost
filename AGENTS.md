@@ -95,7 +95,7 @@ npm run dependencies
 4. `CostCollectorFetch()` runs an initial fetch for all enabled providers
 5. `MetricsInit(config)` registers OTel observable gauges that read from in-memory state
 6. `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set)
-7. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule; after each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost crosses the configured threshold (once per threshold multiple)
+7. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule; after each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies)
 8. When `COST_NOTIFICATION_SUMMARY_SCHEDULE` is set (non-empty, valid cron, evaluated in UTC), a second `node-cron` job sends `NotificationSendSummary()`: a Markdown summary of the latest known cost metrics for the month; an invalid expression is logged and startup continues without the summary job
 
 ### Adding a New Cloud Provider

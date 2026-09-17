@@ -8,7 +8,9 @@ import {
 } from "./CloudDefinitions";
 import { Config } from "./Config";
 import {
+  NotificationCheckThreshold,
   NotificationInit,
+  NotificationResetThreshold,
   NotificationSendSummary,
 } from "./NotificationService";
 
@@ -21,12 +23,14 @@ const mockedNotificationsClient = jest.mocked(NotificationsClient);
 interface MockNotificationsClient {
   isEnabled: jest.Mock;
   info: jest.Mock;
+  warning: jest.Mock;
 }
 
 function givenNotificationsClient(enabled: boolean): MockNotificationsClient {
   const client: MockNotificationsClient = {
     isEnabled: jest.fn().mockReturnValue(enabled),
     info: jest.fn().mockResolvedValue({ id: "notification-id" }),
+    warning: jest.fn().mockResolvedValue({ id: "notification-id" }),
   };
   mockedNotificationsClient.mockImplementation(
     () => client as unknown as NotificationsClient,
@@ -44,6 +48,7 @@ describe("NotificationService", () => {
     deepseekBalances.USD = 0;
     moonshotAIBalances.USD = 0;
     zaiBalances.USD = 0;
+    NotificationResetThreshold();
   });
 
   describe("NotificationSendSummary", () => {
@@ -108,6 +113,137 @@ describe("NotificationService", () => {
       await NotificationSendSummary();
 
       expect(client.info).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("NotificationCheckThreshold", () => {
+    function givenEnabledConfig(): Config {
+      const config = new Config();
+      config.COST_ENABLED_AWS = true;
+      NotificationInit(config);
+      return config;
+    }
+
+    it("should not notify on the first check above the threshold (startup baseline)", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 25, services: {} };
+
+      await NotificationCheckThreshold();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should notify once when the threshold multiple is newly reached between two checks", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 5, services: {} };
+
+      await NotificationCheckThreshold();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      cost.aws = { total: 12, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).toHaveBeenCalledTimes(1);
+      expect(client.warning).toHaveBeenCalledWith(
+        "Cloud cost threshold reached: $10.00",
+        "Total month-to-date cost has reached $12.00 (AWS: $12.00)",
+        "cloudcost",
+      );
+    });
+
+    it("should not notify again when two consecutive checks are in the same multiple", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 12, services: {} };
+
+      await NotificationCheckThreshold();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      cost.aws = { total: 15, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should notify again when the cost rises to the next multiple", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 5, services: {} };
+      await NotificationCheckThreshold();
+
+      cost.aws = { total: 12, services: {} };
+      await NotificationCheckThreshold();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+      expect(client.warning).toHaveBeenCalledWith(
+        "Cloud cost threshold reached: $10.00",
+        expect.any(String),
+        "cloudcost",
+      );
+
+      cost.aws = { total: 25, services: {} };
+      await NotificationCheckThreshold();
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenLastCalledWith(
+        "Cloud cost threshold reached: $20.00",
+        "Total month-to-date cost has reached $25.00 (AWS: $25.00)",
+        "cloudcost",
+      );
+    });
+
+    it("should not notify when the cost drops below the previous multiple", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 5, services: {} };
+      await NotificationCheckThreshold();
+
+      cost.aws = { total: 12, services: {} };
+      await NotificationCheckThreshold();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      cost.aws = { total: 3, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not notify when the notifications integration is disabled", async () => {
+      const client = givenNotificationsClient(false);
+      givenEnabledConfig();
+      cost.aws = { total: 5, services: {} };
+      await NotificationCheckThreshold();
+
+      cost.aws = { total: 25, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should not notify when the threshold is disabled (0)", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig().COST_NOTIFICATION_THRESHOLD = 0;
+      cost.aws = { total: 5, services: {} };
+      await NotificationCheckThreshold();
+
+      cost.aws = { total: 25, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should not notify on the first check after a threshold reset", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      cost.aws = { total: 12, services: {} };
+      await NotificationCheckThreshold();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      NotificationResetThreshold();
+      cost.aws = { total: 25, services: {} };
+      await NotificationCheckThreshold();
+
+      expect(client.warning).not.toHaveBeenCalled();
     });
   });
 });

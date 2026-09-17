@@ -206,7 +206,7 @@ Z.AI does not expose a monthly bill through its public API. The remaining accoun
 
 ## Notifications
 
-When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service whenever the combined month-to-date cost of all enabled providers crosses the configured threshold. To avoid spam, only one notification is sent per threshold multiple (e.g. $10, $20, $30). When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
+When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service when the combined month-to-date cost of all enabled providers reaches a higher threshold multiple (e.g. $10, $20, $30) than at the previous measurement. The first measurement after startup only establishes the baseline and never notifies, so no notification is sent at startup for a threshold that is already exceeded. When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
 
 Optionally, CloudCost can also send a regular Markdown summary of all cost metrics for the month: per-provider month-to-date totals with a grand total, the per-service breakdown for each provider, and the remaining LLM account credits. The summary is sent with `info` severity at the configured cron schedule (evaluated in UTC) and always reports the latest known metrics. When the variable is unset or empty, no summary is sent.
 
