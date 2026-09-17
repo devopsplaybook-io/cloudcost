@@ -9,9 +9,11 @@ const logger = OTelLogger().createModuleLogger("notification-service");
 let notificationClient: NotificationsClient | null = null;
 let config: Config;
 
-// Track the last notified threshold level to avoid spamming
-// When cost crosses a threshold multiple (e.g., $10, $20, $30), notify once per multiple
-let lastNotifiedThresholdMultiple = 0;
+// Track the threshold multiple observed at the previous measurement so a
+// notification is sent only when a new multiple is reached between two
+// consecutive cost measurements. `null` means no previous measurement yet
+// (startup baseline), which never notifies.
+let previousThresholdMultiple: number | null = null;
 
 /**
  * Initialize the notification service.
@@ -29,8 +31,11 @@ export function NotificationInit(configIn: Config): void {
 }
 
 /**
- * Check if the total cost has crossed a threshold and send a notification.
- * Notifies once per threshold multiple (e.g., $10, $20, $30) to avoid spam.
+ * Check if the total cost has reached a new threshold multiple compared to the
+ * previous measurement and send a notification.
+ * The first measurement (startup baseline) never notifies; afterwards a
+ * notification is sent only when the threshold multiple is higher than the one
+ * observed at the previous measurement (e.g., $10, $20, $30).
  */
 export async function NotificationCheckThreshold(): Promise<void> {
   if (!notificationClient || !notificationClient.isEnabled()) {
@@ -50,13 +55,18 @@ export async function NotificationCheckThreshold(): Promise<void> {
     return;
   }
 
-  // Calculate which threshold multiple we've crossed
+  // Calculate which threshold multiple the current cost corresponds to
   const currentMultiple = Math.floor(totalCost / threshold);
+  const previousMultiple = previousThresholdMultiple;
+  previousThresholdMultiple = currentMultiple;
 
-  // Only notify if we've crossed a new threshold multiple
-  if (currentMultiple > lastNotifiedThresholdMultiple && currentMultiple > 0) {
-    lastNotifiedThresholdMultiple = currentMultiple;
-
+  // Only notify when a threshold multiple is newly reached between two
+  // consecutive measurements: the baseline measurement never notifies
+  if (
+    previousMultiple !== null &&
+    currentMultiple > previousMultiple &&
+    currentMultiple > 0
+  ) {
     const thresholdAmount = currentMultiple * threshold;
     const breakdown = CLOUDS.filter((c) => config[c.configFlag])
       .map((c) => `${c.label}: $${cost[c.key].total.toFixed(2)}`)
@@ -78,9 +88,10 @@ export async function NotificationCheckThreshold(): Promise<void> {
 
 /**
  * Reset the threshold tracking (useful for testing or month rollover).
+ * The next measurement re-establishes the baseline and never notifies.
  */
 export function NotificationResetThreshold(): void {
-  lastNotifiedThresholdMultiple = 0;
+  previousThresholdMultiple = null;
 }
 
 const formatUsd = (amount: number): string => `$${amount.toFixed(2)}`;
