@@ -6,7 +6,6 @@ const deflate = util.promisify(zlib.deflate);
 const brotliCompress = util.promisify(zlib.brotliCompress);
 
 export async function JsonUtilsCompress(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   jsonData: any,
   method = "gzip"
 ): Promise<string> {

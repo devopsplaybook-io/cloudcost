@@ -32,7 +32,6 @@ cloudcost/
 │   │   └── config.json        # Runtime config file (hot-reloaded via watchFile)
 │   ├── package.json
 │   ├── jest.config.js
-│   ├── eslint.config.mjs
 │   └── tsconfig.json
 ├── Dockerfile                 # Multi-stage build (node:22-alpine)
 ├── ecosystem.config.js        # PM2 process manager config for dev
@@ -42,10 +41,10 @@ cloudcost/
 
 ## Tech Stack
 
-- **Runtime:** Node.js 22, TypeScript 6
-- **Build:** `tsc` (plain TypeScript compiler, no bundler)
-- **Test:** Jest 30 + ts-jest (test files: `*.spec.ts` co-located in `src/`)
-- **Lint:** ESLint 10 with `typescript-eslint` (strict + stylistic rules)
+- **Runtime:** Node.js 22, TypeScript 7
+- **Build:** `tsc` (TypeScript 7 native compiler, no bundler)
+- **Test:** Jest 30 + `@swc/jest` transform with v8 coverage (test files: `*.spec.ts` co-located in `src/`)
+- **Lint:** oxlint (recommended preset)
 - **Process Manager (dev):** PM2 via `ecosystem.config.js`
 - **Scheduling:** `node-cron` for periodic cost fetching (default: every 12h)
 - **Observability:** `@devopsplaybook.io/otel-utils` (local lib in `_libs/otel-utils/`) for OTel traces, metrics, and logs
@@ -68,7 +67,7 @@ npm test
 # Lint
 npm run lint
 
-# Dev mode (auto-restart on file change via ts-node-dev)
+# Dev mode (auto-restart on file change via tsx)
 npm run dev
 
 # Run tests in watch mode
@@ -136,7 +135,7 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 ## Testing Conventions
 
-- Tests use Jest with `ts-jest` transform
+- Tests use Jest with `@swc/jest` transform
 - Test files are `*.spec.ts` co-located next to the source file they test
 - `fs-extra` is mocked with `jest.mock("fs-extra")` for Config tests
 - Cloud provider fetchers are not mocked in integration — they call real APIs when credentials are present
