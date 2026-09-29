@@ -13,6 +13,9 @@ describe("Config", () => {
     delete process.env.COST_FETCH_CRON;
     delete process.env.COST_NOTIFICATION_SUMMARY_SCHEDULE;
     delete process.env.COST_ENABLED_AWS;
+    delete process.env.COST_ENABLED_GITHUB;
+    delete process.env.GITHUB_ACCOUNT_TYPE;
+    delete process.env.GITHUB_ACCOUNT;
     delete process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES;
     delete process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
   });
@@ -32,6 +35,9 @@ describe("Config", () => {
       expect(config.COST_ENABLED_MOONSHOTAI).toBe(false);
       expect(config.COST_ENABLED_ZAI).toBe(false);
       expect(config.COST_ENABLED_CLOUDFLARE).toBe(false);
+      expect(config.COST_ENABLED_GITHUB).toBe(false);
+      expect(config.GITHUB_ACCOUNT_TYPE).toBe("organization");
+      expect(config.GITHUB_ACCOUNT).toBe("");
       expect(config.OTEL_BY_CLOUD).toBe(true);
     });
 
@@ -57,6 +63,9 @@ describe("Config", () => {
         LOG_LEVEL: "debug",
         COST_ENABLED_AWS: true,
         COST_ENABLED_AZURE: true,
+        COST_ENABLED_GITHUB: true,
+        GITHUB_ACCOUNT_TYPE: "user",
+        GITHUB_ACCOUNT: "sample-account",
       });
 
       const config = new Config();
@@ -65,15 +74,24 @@ describe("Config", () => {
       expect(config.LOG_LEVEL).toBe("debug");
       expect(config.COST_ENABLED_AWS).toBe(true);
       expect(config.COST_ENABLED_AZURE).toBe(true);
+      expect(config.COST_ENABLED_GITHUB).toBe(true);
+      expect(config.GITHUB_ACCOUNT_TYPE).toBe("user");
+      expect(config.GITHUB_ACCOUNT).toBe("sample-account");
     });
 
     it("should prioritize environment variables over config file", async () => {
       process.env.LOG_LEVEL = "error";
       process.env.COST_ENABLED_AWS = "false";
+      process.env.COST_ENABLED_GITHUB = "true";
+      process.env.GITHUB_ACCOUNT_TYPE = "user";
+      process.env.GITHUB_ACCOUNT = "env-account";
 
       mockedFse.readJson.mockResolvedValueOnce({
         LOG_LEVEL: "debug",
         COST_ENABLED_AWS: true,
+        COST_ENABLED_GITHUB: false,
+        GITHUB_ACCOUNT_TYPE: "organization",
+        GITHUB_ACCOUNT: "file-account",
       });
 
       const config = new Config();
@@ -81,6 +99,9 @@ describe("Config", () => {
 
       expect(config.LOG_LEVEL).toBe("error");
       expect(config.COST_ENABLED_AWS).toBe(false);
+      expect(config.COST_ENABLED_GITHUB).toBe(true);
+      expect(config.GITHUB_ACCOUNT_TYPE).toBe("user");
+      expect(config.GITHUB_ACCOUNT).toBe("env-account");
     });
 
     it("should keep defaults when neither file nor env sets a value", async () => {
