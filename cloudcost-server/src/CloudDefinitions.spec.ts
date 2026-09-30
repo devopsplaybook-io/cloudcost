@@ -16,6 +16,7 @@ describe("CloudDefinitions", () => {
         "alibabacloud",
         "googlecloud",
         "cloudflare",
+        "github",
       ]);
     });
 

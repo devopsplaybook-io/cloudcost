@@ -22,6 +22,9 @@ export class Config implements ConfigOTelInterface {
   public COST_ENABLED_MOONSHOTAI = false;
   public COST_ENABLED_ZAI = false;
   public COST_ENABLED_CLOUDFLARE = false;
+  public COST_ENABLED_GITHUB = false;
+  public GITHUB_ACCOUNT_TYPE: "organization" | "user" = "organization";
+  public GITHUB_ACCOUNT = "";
   public OTEL_BY_CLOUD = true;
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS = "";
@@ -93,6 +96,9 @@ export class Config implements ConfigOTelInterface {
     setIfSet("COST_ENABLED_MOONSHOTAI");
     setIfSet("COST_ENABLED_ZAI");
     setIfSet("COST_ENABLED_CLOUDFLARE");
+    setIfSet("COST_ENABLED_GITHUB");
+    setIfSet("GITHUB_ACCOUNT_TYPE");
+    setIfSet("GITHUB_ACCOUNT");
     setIfSet("OTEL_BY_CLOUD");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_TRACES");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_METRICS");

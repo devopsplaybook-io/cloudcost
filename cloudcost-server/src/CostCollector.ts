@@ -25,7 +25,7 @@ export async function CostCollectorFetch(): Promise<void> {
   for (const cloud of CLOUDS) {
     if (config[cloud.configFlag]) {
       await cloud
-        .fetcher(span)
+        .fetcher(span, config)
         .then((amount) => {
           cost[cloud.key] = amount;
           span.addEvent(`${cloud.label} cost: ` + JSON.stringify(amount));

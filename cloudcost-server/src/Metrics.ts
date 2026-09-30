@@ -4,6 +4,7 @@ import {
   cost,
   deepseekBalances,
   moonshotAIBalances,
+  githubTokenBalance,
   zaiBalances,
 } from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
@@ -31,6 +32,18 @@ export const LLM_BALANCE_SOURCES: {
   },
 ];
 
+export const TOKEN_BALANCE_SOURCES: {
+  provider: string;
+  configFlag: keyof Config;
+  getBalance: () => number | undefined;
+}[] = [
+  {
+    provider: "github",
+    configFlag: "COST_ENABLED_GITHUB",
+    getBalance: () => githubTokenBalance.remaining,
+  },
+];
+
 export function MetricsInit(config: Config): void {
   OTelMeter().createObservableGauge(
     "cloud.cost.month-to-date",
@@ -49,6 +62,31 @@ export function MetricsInit(config: Config): void {
     },
     "Current Month Cloud Cost",
   );
+
+  if (TOKEN_BALANCE_SOURCES.some((source) => config[source.configFlag])) {
+    OTelMeter().createObservableGauge(
+      "ai.balance.token",
+      (observableResult) => {
+        let total = 0;
+        let hasBalance = false;
+        for (const source of TOKEN_BALANCE_SOURCES) {
+          if (!config[source.configFlag]) {
+            continue;
+          }
+          const value = source.getBalance();
+          if (value !== undefined && Number.isFinite(value) && value >= 0) {
+            observableResult.observe(value, { provider: source.provider });
+            total += value;
+            hasBalance = true;
+          }
+        }
+        if (hasBalance) {
+          observableResult.observe(total, { provider: "total" });
+        }
+      },
+      "Remaining raw AI tokens by provider",
+    );
+  }
 
   OTelMeter().createObservableGauge(
     "cloud.cost.service.month-to-date",

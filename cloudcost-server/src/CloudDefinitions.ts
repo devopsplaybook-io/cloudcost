@@ -4,6 +4,7 @@ import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
 import { GoogleCloudGetMonthCurrent } from "./cloud/GoogleCloudCost";
 import { CloudflareGetMonthCurrent } from "./cloud/CloudflareCost";
+import { GitHubGetMonthCurrent } from "./cloud/GitHubCost";
 import { Config } from "./Config";
 
 export interface CloudCost {
@@ -15,7 +16,7 @@ export interface CloudDefinition {
   key: string;
   label: string;
   configFlag: keyof Config;
-  fetcher: (span: Span) => Promise<CloudCost>;
+  fetcher: (span: Span, config?: Config) => Promise<CloudCost>;
 }
 
 export const CLOUDS: CloudDefinition[] = [
@@ -49,6 +50,12 @@ export const CLOUDS: CloudDefinition[] = [
     configFlag: "COST_ENABLED_CLOUDFLARE",
     fetcher: CloudflareGetMonthCurrent,
   },
+  {
+    key: "github",
+    label: "GitHub",
+    configFlag: "COST_ENABLED_GITHUB",
+    fetcher: GitHubGetMonthCurrent,
+  },
 ];
 
 export const deepseekBalances: Record<string, number> = {
@@ -70,4 +77,11 @@ export const cost: Record<string, CloudCost> = {
   alibabacloud: { total: 0, services: {} },
   googlecloud: { total: 0, services: {} },
   cloudflare: { total: 0, services: {} },
+  github: { total: 0, services: {} },
+};
+
+// GitHub currently has no documented API for a remaining raw-token balance.
+// Keep the source extensible without substituting Copilot usage for a balance.
+export const githubTokenBalance: { remaining: number | undefined } = {
+  remaining: undefined,
 };

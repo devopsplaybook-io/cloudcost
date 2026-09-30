@@ -2,7 +2,7 @@
 
 ## Overview
 
-CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, DeepSeek, Moonshot AI, Z.AI) and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
+CloudCost is a server-only Node.js service that periodically fetches month-to-date cloud spending from multiple providers (AWS, Azure, Alibaba Cloud, Google Cloud, Cloudflare, GitHub, DeepSeek, Moonshot AI, Z.AI) and emits the data as OpenTelemetry metrics. It has no UI and no database — it is a lightweight OTel metrics exporter.
 
 ## Project Structure
 
@@ -24,6 +24,7 @@ cloudcost/
 │   │   │   ├── AlibabaCloudCost.ts       # Alibaba BSS OpenAPI SDK
 │   │   │   ├── GoogleCloudCost.ts        # BigQuery billing export query
 │   │   │   ├── CloudflareCost.ts         # Cloudflare REST API (subscriptions + zones)
+│   │   │   ├── GitHubCost.ts             # GitHub billing usage REST API
 │   │   │   ├── DeepSeekCost.ts           # DeepSeek balance API
 │   │   │   ├── MoonshotAICost.ts         # Moonshot AI balance API
 │   │   │   └── ZAICost.ts                # Z.AI account API (remaining account credit)
@@ -124,14 +125,16 @@ Priority order: **environment variables > `config.json` > class defaults**.
 - Boolean fields are parsed from strings case-insensitively (`"true"` → `true`)
 - Sensitive values (like `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`) are masked in logs
 - Cloud provider credentials are read directly from `process.env` inside each fetcher (not via `Config`)
+- GitHub's account type and name are configurable in `Config`; its token remains an environment-only secret. Organization usage requires billing administrator access and enhanced billing platform availability; user usage includes only charges billed directly to the personal account.
 
 ### OTel Integration
 
 - Uses the shared `@devopsplaybook.io/otel-utils` library (source in `_libs/otel-utils/`)
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
-- Metrics are **observable gauges** — they read from in-memory `cost`, `deepseekBalances`, `moonshotAIBalances`, and `zaiBalances` objects on each OTel collection cycle
+- Metrics are **observable gauges** — they read from in-memory `cost`, LLM credit balances, and verified token balances on each OTel collection cycle
 - Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
+- GitHub participates in shared cloud totals, notifications, and service costs, and additionally emits `cloud.cost.service.month-to-date.github` when enabled. `ai.balance.token` is provider-extensible, but GitHub currently has no documented remaining raw-token balance endpoint; do not populate it from usage or AI-credit consumption.
 
 ## Testing Conventions
 
@@ -156,5 +159,6 @@ Multi-stage Dockerfile:
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
 - Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)
+- GitHub billing is handled as a normal provider in `CLOUDS`. `GITHUB_ACCOUNT_TYPE` selects `organization` or `user`, `GITHUB_ACCOUNT` identifies that account, and `GITHUB_TOKEN` authorizes the billing usage request.
 - The `utils-std-ts/` directory contains generic utilities not specific to this project
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class

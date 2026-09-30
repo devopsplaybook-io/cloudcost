@@ -24,6 +24,10 @@ docker run --name cloudcost \
   -e COST_ENABLED_ALIBABACLOUD=true \
   -e ALIBABACLOUD_ACCESS_KEY_ID=your-access-key-id \
   -e ALIBABACLOUD_SECRET_KEY=your-secret-key \
+  -e COST_ENABLED_GITHUB=true \
+  -e GITHUB_ACCOUNT_TYPE=organization \
+  -e GITHUB_ACCOUNT=your-org \
+  -e GITHUB_TOKEN=your-token \
   -e OPENTELEMETRY_COLLECTOR_HTTP_METRICS=http://otel-collector:4318/v1/metrics \
   -d cloudcost
 ```
@@ -139,6 +143,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 | `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
 | `COST_ENABLED_ZAI`          | Enable Z.AI credit tracking        | `false` |
+| `COST_ENABLED_GITHUB`       | Enable GitHub billing usage   | `false` |
 
 ### AWS
 
@@ -178,6 +183,18 @@ Authentication uses the standard Google Cloud credential chain (environment vari
 | `GOOGLECLOUD_BILLING_DATASET`    | BigQuery dataset name containing the billing export                      |         |
 | `GOOGLECLOUD_BILLING_TABLE`      | BigQuery table name (e.g. `gcp_billing_export_v1_XXXXXX-XXXXXX-XXXXXX`)  |         |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to a service account key JSON file (if not using workload identity) |         |
+
+### GitHub
+
+GitHub cost is read from the selected account's current-month billing usage report (`GET /organizations/{org}/settings/billing/usage` or `GET /users/{username}/settings/billing/usage`) and grouped by product and SKU. Organization scope covers usage billed to that organization; user scope only covers charges billed to the user's personal account, not Copilot or other usage billed by an organization or enterprise. The organization endpoint requires an organization administrator and access to GitHub's enhanced billing platform. The personal endpoint requires access to the user's billing data. Provide a token authorized to read that account's billing usage.
+
+`GITHUB_ACCOUNT_TYPE` can be set in `config.json` or the environment, with environment variables taking precedence. The account name can be set as `GITHUB_ACCOUNT` in `config.json` or the environment; the credential is supplied only as the `GITHUB_TOKEN` environment variable. The account type defaults to `organization`.
+
+| Variable | Description | Default |
+| -------- | ----------- | ------- |
+| `GITHUB_ACCOUNT_TYPE` | Billing scope: `organization` or `user` | `organization` |
+| `GITHUB_ACCOUNT` | Organization slug or personal GitHub username | |
+| `GITHUB_TOKEN` | Token authorized to read billing usage for the selected account | |
 
 ### DeepSeek
 
@@ -245,9 +262,13 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------ |
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
+| `cloud.cost.service.month-to-date.github` | GitHub's month-to-date billing breakdown by product and SKU (when `OTEL_BY_CLOUD=true`) | `cloud`, `service` |
 | `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI) plus `total` | `provider`         |
 | `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
+| `ai.balance.token`                 | Remaining raw AI tokens by provider plus `total`, when a provider exposes a verified remaining-token balance | `provider`         |
 
 The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per LLM provider that currently has credit in that currency, plus a `total` data point summing them. A currency with no provider credit emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, and `total`.
 
-The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `deepseek`, and `total` (for the combined total across all enabled providers).
+The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `cloudflare`, `github`, and `total` (for the combined total across all enabled cost providers).
+
+GitHub is included in the `cloud.cost.month-to-date` provider and overall totals and notification summaries. GitHub's published Copilot endpoints report usage and AI-credit consumption, not a remaining raw-token balance; accordingly, `ai.balance.token` does not report a GitHub value unless a future API provides a verified remaining-token quantity.

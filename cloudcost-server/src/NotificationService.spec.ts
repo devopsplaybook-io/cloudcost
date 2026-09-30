@@ -59,6 +59,10 @@ describe("NotificationService", () => {
         services: { "Amazon Elastic Compute Cloud": 10, "Amazon S3": 2.34 },
       };
       cost.azure = { total: 5, services: {} };
+      cost.github = {
+        total: 6.78,
+        services: { "Copilot / Premium requests": 6.78 },
+      };
       deepseekBalances.USD = 5.68;
       deepseekBalances.CNY = 3.21;
       zaiBalances.USD = 1.5;
@@ -66,6 +70,7 @@ describe("NotificationService", () => {
       const config = new Config();
       config.COST_ENABLED_AWS = true;
       config.COST_ENABLED_AZURE = true;
+      config.COST_ENABLED_GITHUB = true;
       config.COST_ENABLED_DEEPSEEK = true;
       config.COST_ENABLED_ZAI = true;
       NotificationInit(config);
@@ -81,9 +86,11 @@ describe("NotificationService", () => {
       const body = client.info.mock.calls[0][1] as string;
       expect(body).toContain("| AWS | $12.34 |");
       expect(body).toContain("| Azure | $5.00 |");
-      expect(body).toContain("| **Total** | **$17.34** |");
+      expect(body).toContain("| GitHub | $6.78 |");
+      expect(body).toContain("| **Total** | **$24.12** |");
       expect(body).toContain("| Amazon Elastic Compute Cloud | $10.00 |");
       expect(body).toContain("| Amazon S3 | $2.34 |");
+      expect(body).toContain("| Copilot / Premium requests | $6.78 |");
       expect(body).toContain("| deepseek | 3.21 | 5.68 |");
       expect(body).toContain("| zai | - | 1.50 |");
       expect(body).toContain("| **Total** | **3.21** | **7.18** |");
