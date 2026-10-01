@@ -1,6 +1,6 @@
 {
   "name": "cloudcost-server",
-  "version": "0.10.0",
+  "version": "0.10.6",
   "author": "",
   "license": "MIT",
   "scripts": {
@@ -41,7 +41,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.25",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "@types/node-cron": "^3.0.11",
     "@types/sqlite3": "^5.1.0",
     "jest": "^30.5.2",
