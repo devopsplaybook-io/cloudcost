@@ -1,6 +1,6 @@
 {
   "name": "cloudcost-server",
-  "version": "0.10.0",
+  "version": "0.10.4",
   "author": "",
   "license": "MIT",
   "scripts": {
@@ -45,7 +45,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/sqlite3": "^5.1.0",
     "jest": "^30.5.2",
-    "oxlint": "^1.83.0",
+    "oxlint": "^1.86.0",
     "sinon": "^22.1.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

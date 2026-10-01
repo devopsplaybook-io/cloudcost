@@ -1,6 +1,6 @@
 {
   "name": "cloudcost",
-  "version": "0.15.0",
+  "version": "0.15.4",
   "description": "",
   "main": "ecosystem.config.js",
   "scripts": {
