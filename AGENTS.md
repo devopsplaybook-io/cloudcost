@@ -34,7 +34,7 @@ cloudcost/
 │   ├── package.json
 │   ├── jest.config.js
 │   └── tsconfig.json
-├── Dockerfile                 # Multi-stage build (node:22-alpine)
+├── Dockerfile                 # Multi-stage build (node:22.23.3-alpine)
 ├── ecosystem.config.js        # PM2 process manager config for dev
 ├── env-dev.js                 # Local dev credentials (gitignored)
 └── docs/dev/                  # Dev scripts (run-dev-env.sh, run-dev-dependencies-rebuild.sh)
@@ -148,8 +148,8 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 Multi-stage Dockerfile:
 
-- **Builder stage:** `node:22-alpine`, installs build tools, runs `npm ci && npm run build`
-- **Runtime stage:** `node:22-alpine`, copies `node_modules`, `dist/`, `config.json`, and `package.json`
+- **Builder stage:** `node:22.23.3-alpine`, installs build tools, runs `npm ci && npm run build`
+- **Runtime stage:** `node:22.23.3-alpine`, copies `node_modules`, `dist/`, `config.json`, and `package.json`
 - Entry point: `dist/App.js`
 
 ## Important Notes

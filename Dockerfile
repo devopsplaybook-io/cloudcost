@@ -1,5 +1,5 @@
 # BUILD
-FROM node:22-alpine as builder
+FROM node:22.23.3-alpine as builder
 
 WORKDIR /opt/src
 
@@ -12,7 +12,7 @@ RUN cd cloudcost-server && \
     npm run build
 
 # RUN
-FROM node:22-alpine
+FROM node:22.23.3-alpine
 
 COPY --from=builder /opt/src/cloudcost-server/node_modules /opt/app/cloudcost/node_modules
 COPY --from=builder /opt/src/cloudcost-server/dist /opt/app/cloudcost/dist
