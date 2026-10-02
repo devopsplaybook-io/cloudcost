@@ -9,7 +9,8 @@ COPY cloudcost-server cloudcost-server
 
 RUN cd cloudcost-server && \
     npm ci && \
-    npm run build
+    npm run build && \
+    npm prune --omit=dev
 
 # RUN
 FROM node:22-alpine
@@ -20,5 +21,7 @@ COPY cloudcost-server/config.json /opt/app/cloudcost/config.json
 COPY package.json /opt/app/cloudcost/package.json
 
 WORKDIR /opt/app/cloudcost
+
+USER node
 
 CMD [ "dist/App.js" ]

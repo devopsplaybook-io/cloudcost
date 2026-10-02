@@ -1,6 +1,8 @@
 import { Config } from "./Config";
 import { OTelLogger } from "./OTelContext";
 import * as fse from "fs-extra";
+import * as fs from "fs";
+import * as path from "path";
 
 jest.mock("fs-extra");
 
@@ -225,6 +227,18 @@ describe("Config", () => {
       await config.reload();
 
       expect(config.COST_NOTIFICATION_THRESHOLD).toBe(42);
+    });
+  });
+
+  describe("version consistency", () => {
+    it("should keep the root and server package.json versions in sync", () => {
+      const rootPackage = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"),
+      );
+      const serverPackage = JSON.parse(
+        fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf8"),
+      );
+      expect(serverPackage.version).toBe(rootPackage.version);
     });
   });
 });
