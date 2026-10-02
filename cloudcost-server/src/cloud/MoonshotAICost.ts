@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("MoonshotAICost");
 
@@ -31,6 +32,7 @@ export async function MoonshotAIGetBalance(
           Authorization: `Bearer ${apiKey}`,
           Accept: "application/json",
         },
+        timeout: COST_HTTP_TIMEOUT_MS,
       },
     );
 
