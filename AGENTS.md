@@ -10,13 +10,15 @@ CloudCost is a server-only Node.js service that periodically fetches month-to-da
 cloudcost/
 ├── cloudcost-server/          # The sole application module
 │   ├── src/
-│   │   ├── App.ts             # Entry point: boots config, OTel, cron scheduler
+│   │   ├── App.ts             # Thin entry point: logging, rejection guard, calls Start()
+│   │   ├── Start.ts           # Boot chain: config load, OTel init, cron scheduling
 │   │   ├── Config.ts          # Config class: env vars > config.json > defaults
 │   │   ├── CloudDefinitions.ts # Registry of cloud providers + in-memory cost state
 │   │   ├── CostCollector.ts   # Orchestrates fetching costs from all enabled providers
 │   │   ├── NotificationService.ts # Threshold + scheduled summary notifications via shared NotificationsClient
 │   │   ├── Metrics.ts         # Defines OTel observable gauges from in-memory cost data
 │   │   ├── OTelContext.ts     # Singleton holders for OTel tracer, meter, logger
+│   │   ├── ProviderConfigCheck.ts # Startup report of incomplete provider configs
 │   │   ├── cloud/
 │   │   │   ├── CostBreakdownInterface.ts  # Shared { total, services } shape
 │   │   │   ├── AWSCost.ts                # AWS Cost Explorer SDK
@@ -28,7 +30,6 @@ cloudcost/
 │   │   │   ├── DeepSeekCost.ts           # DeepSeek balance API
 │   │   │   ├── MoonshotAICost.ts         # Moonshot AI balance API
 │   │   │   └── ZAICost.ts                # Z.AI account API (remaining account credit)
-│   │   ├── utils-std-ts/      # Shared utilities (JsonUtils, PromisePool, etc.)
 │   │   ├── *.spec.ts          # Unit tests (co-located with source)
 │   │   └── config.json        # Runtime config file (hot-reloaded via watchFile)
 │   ├── package.json
@@ -48,7 +49,7 @@ cloudcost/
 - **Lint:** oxlint (recommended preset)
 - **Process Manager (dev):** PM2 via `ecosystem.config.js`
 - **Scheduling:** `node-cron` for periodic cost fetching (default: every 12h)
-- **Observability:** `@devopsplaybook.io/otel-utils` (local lib in `_libs/otel-utils/`) for OTel traces, metrics, and logs
+- **Observability:** `@devopsplaybook.io/otel-utils` (published npm package) for OTel traces, metrics, and logs
 - **Cloud SDKs:** `@aws-sdk/client-cost-explorer`, `@azure/arm-costmanagement`, `@alicloud/bssopenapi20171214`, `@google-cloud/bigquery`, `axios` (Cloudflare, DeepSeek, Moonshot AI, Z.AI)
 
 ## Commands
@@ -89,14 +90,17 @@ npm run dependencies
 
 ### Startup Flow
 
-1. `App.ts` creates a `Config` instance and calls `reload()` (reads `config.json` + env vars)
+`App.ts` is a thin entry point (logging, `unhandledRejection` guard, `Start()` call); the boot chain lives in `Start.ts`:
+
+1. Creates a `Config` instance and calls `reload()` (reads `config.json` + env vars); a failure here is logged and startup continues with defaults
 2. Initializes OTel tracer, meter, and logger singletons via `OTelContext.ts`
 3. `CostCollectorInit(config)` stores the config reference
-4. `CostCollectorFetch()` runs an initial fetch for all enabled providers
+4. `CostCollectorFetch()` runs an initial fetch for all enabled providers (in parallel, with per-provider error containment)
 5. `MetricsInit(config)` registers OTel observable gauges that read from in-memory state
 6. `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set)
-7. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule; after each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies)
-8. When `COST_NOTIFICATION_SUMMARY_SCHEDULE` is set (non-empty, valid cron, evaluated in UTC), a second `node-cron` job sends `NotificationSendSummary()`: a Markdown summary of the latest known cost metrics for the month; an invalid expression is logged and startup continues without the summary job
+7. `ValidateProviderConfigs(config)` logs a startup report of enabled providers missing required configuration
+8. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule (`noOverlap: true`); an invalid `COST_FETCH_CRON` is logged and the default schedule is used instead. After each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies)
+9. When `COST_NOTIFICATION_SUMMARY_SCHEDULE` is set (non-empty, valid cron, evaluated in UTC), a second `node-cron` job sends `NotificationSendSummary()`: a Markdown summary of the latest known cost metrics for the month; an invalid expression is logged and startup continues without the summary job
 
 ### Adding a New Cloud Provider
 
@@ -121,18 +125,19 @@ Every cloud fetcher must:
 
 Priority order: **environment variables > `config.json` > class defaults**.
 
-- `Config.reload()` is called at startup and on `config.json` file changes (via `fs.watchFile`)
-- Boolean fields are parsed from strings case-insensitively (`"true"` → `true`)
+- `Config.reload()` is called at startup and on `config.json` file changes (via `fs.watchFile`); a failed reload (e.g. corrupt JSON) is logged and the last good configuration is retained
+- Boolean fields are parsed from strings case-insensitively (`"true"` → `true`); numeric fields reject non-finite values with a logged error and keep the current value
 - Sensitive values (like `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`) are masked in logs
 - Cloud provider credentials are read directly from `process.env` inside each fetcher (not via `Config`)
 - GitHub's account type and name are configurable in `Config`; its token remains an environment-only secret. Organization usage requires billing administrator access and enhanced billing platform availability; user usage includes only charges billed directly to the personal account.
 
 ### OTel Integration
 
-- Uses the shared `@devopsplaybook.io/otel-utils` library (source in `_libs/otel-utils/`)
+- Uses the shared `@devopsplaybook.io/otel-utils` published package
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
-- Metrics are **observable gauges** — they read from in-memory `cost`, LLM credit balances, and verified token balances on each OTel collection cycle
-- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
+- Metrics are **observable gauges** — they read from in-memory `cost`, LLM credit balances, fetch status, and verified token balances on each OTel collection cycle
+- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, the per-provider fetch freshness gauges `cloud.cost.fetch.success` (1/0) and `cloud.cost.fetch.last-success` (epoch seconds), and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
+- Per-cloud (`cloud.cost.service.month-to-date.<cloud>`) and per-currency (`ai.balance.<currency>`) gauge registration happens once in `MetricsInit` — a hot config change enabling a provider or currency needs a restart for those series; value updates are always live
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
 - GitHub participates in shared cloud totals, notifications, and service costs, and additionally emits `cloud.cost.service.month-to-date.github` when enabled. `ai.balance.token` is provider-extensible, but GitHub currently has no documented remaining raw-token balance endpoint; do not populate it from usage or AI-credit consumption.
 
@@ -148,17 +153,20 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 Multi-stage Dockerfile:
 
-- **Builder stage:** `node:22-alpine`, installs build tools, runs `npm ci && npm run build`
-- **Runtime stage:** `node:22-alpine`, copies `node_modules`, `dist/`, `config.json`, and `package.json`
+- **Builder stage:** `node:22-alpine`, installs build tools, runs `npm ci && npm run build && npm prune --omit=dev` so only production modules are carried over
+- **Runtime stage:** `node:22-alpine`, copies the pruned `node_modules`, `dist/`, `config.json`, and `package.json`
+- Runs as the non-root `node` user (`USER node`)
 - Entry point: `dist/App.js`
 
 ## Important Notes
 
 - `env-dev.js` contains real credentials and is gitignored — never commit it
+- The version is single-sourced between the root `package.json` and `cloudcost-server/package.json`: bump **both** together (the root version drives the image tag and the reported `service.version`); `Config.spec.ts` asserts they are equal
 - The `cost` object in `CloudDefinitions.ts` is **mutable shared state** — it is written by `CostCollector` and read by `Metrics` gauge callbacks
+- `fetchStatus` in `CloudDefinitions.ts` tracks per-provider fetch success and last-success time; `CostCollector` is the only writer, `Metrics` reads it for the freshness gauges
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
 - Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)
 - GitHub billing is handled as a normal provider in `CLOUDS`. `GITHUB_ACCOUNT_TYPE` selects `organization` or `user`, `GITHUB_ACCOUNT` identifies that account, and `GITHUB_TOKEN` authorizes the billing usage request.
-- The `utils-std-ts/` directory contains generic utilities not specific to this project
+- All fetchers use the shared `COST_HTTP_TIMEOUT_MS` (30 s) request timeout; the Azure fetcher retries 429/5xx responses up to 4 attempts honoring `Retry-After`
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class

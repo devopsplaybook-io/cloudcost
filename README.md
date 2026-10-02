@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, and Google Cloud, and exposes the data as OpenTelemetry metrics. It also tracks the remaining account credit of the DeepSeek, Moonshot AI, and Z.AI LLM APIs. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, Google Cloud, Cloudflare, and GitHub, and exposes the data as OpenTelemetry metrics. It also tracks the remaining account credit of the DeepSeek, Moonshot AI, and Z.AI LLM APIs. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -105,18 +105,6 @@ spec:
             requests:
               memory: 128Mi
               cpu: 50m
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: cloudcost
-spec:
-  ports:
-    - name: tcp
-      port: 8080
-      targetPort: 8080
-  selector:
-    app: cloudcost
 ```
 
 # Configuration
@@ -127,7 +115,6 @@ Configuration values can be set via environment variables or through the `config
 
 | Variable          | Description                                  | Default                    |
 | ----------------- | -------------------------------------------- | -------------------------- |
-| `LOG_LEVEL`       | Log level (`debug`, `info`, `warn`, `error`) | `info`                     |
 | `COST_FETCH_CRON` | Cron expression for the cost fetch schedule  | `0 */12 * * *` (every 12h) |
 
 ## Cloud Providers
@@ -140,6 +127,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_AZURE`        | Enable Azure cost fetching         | `false` |
 | `COST_ENABLED_ALIBABACLOUD` | Enable Alibaba Cloud cost fetching | `false` |
 | `COST_ENABLED_GOOGLECLOUD`  | Enable Google Cloud cost fetching  | `false` |
+| `COST_ENABLED_CLOUDFLARE`   | Enable Cloudflare cost fetching    | `false` |
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 | `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
 | `COST_ENABLED_ZAI`          | Enable Z.AI credit tracking        | `false` |
@@ -198,12 +186,11 @@ GitHub cost is read from the selected account's current-month billing usage repo
 
 ### DeepSeek
 
-DeepSeek does not provide a monthly usage API. Cost is derived from the account balance: `topped_up_balance - total_balance` gives the total amount spent since the account was created. The monthly token count is tracked locally in a state file that resets each calendar month and can be populated by integrating `saveDeepSeekTokens()` from `DeepSeekCost.ts` into any instrumented call site.
+DeepSeek does not provide a monthly usage API. Cost is derived from the account balance: `topped_up_balance - total_balance` gives the total amount spent since the account was created, and the remaining balance is exposed as a gauge metric.
 
-| Variable              | Description                                              | Default                          |
-| --------------------- | -------------------------------------------------------- | -------------------------------- |
-| `DEEPSEEK_API_KEY`    | DeepSeek API key                                         |                                  |
-| `DEEPSEEK_STATE_FILE` | Path to the local JSON file used to persist token counts | `/tmp/deepseek-usage-state.json` |
+| Variable           | Description      | Default |
+| ------------------ | ---------------- | ------- |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |         |
 
 ### Moonshot AI
 
@@ -255,6 +242,7 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS` | Metrics export interval in seconds          | `600`   |
 | `OPENTELEMETRY_COLLECTOR_AWS`                             | Enable AWS OTel collector                   | `false` |
 | `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`              | Authorization header for the OTel collector |         |
+| `OTEL_BY_CLOUD`                                           | Emit additional per-cloud service metrics   | `true`  |
 
 # Metrics
 
@@ -263,6 +251,8 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
 | `cloud.cost.service.month-to-date.github` | GitHub's month-to-date billing breakdown by product and SKU (when `OTEL_BY_CLOUD=true`) | `cloud`, `service` |
+| `cloud.cost.fetch.success`        | Whether the latest cost fetch succeeded, one data point per enabled provider (`1` success / `0` failure) | `cloud`            |
+| `cloud.cost.fetch.last-success`   | Unix timestamp (seconds) of the last successful fetch, one data point per enabled provider | `cloud`            |
 | `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI) plus `total` | `provider`         |
 | `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
 | `ai.balance.token`                 | Remaining raw AI tokens by provider plus `total`, when a provider exposes a verified remaining-token balance | `provider`         |
@@ -272,3 +262,5 @@ The consolidated LLM credit metrics are reported per currency. Each gauge carrie
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `cloudflare`, `github`, and `total` (for the combined total across all enabled cost providers).
 
 GitHub is included in the `cloud.cost.month-to-date` provider and overall totals and notification summaries. GitHub's published Copilot endpoints report usage and AI-credit consumption, not a remaining raw-token balance; accordingly, `ai.balance.token` does not report a GitHub value unless a future API provides a verified remaining-token quantity.
+
+Which gauges exist is decided at startup: the per-cloud service gauges (`cloud.cost.service.month-to-date.<cloud>`) and the per-currency LLM credit gauges (`ai.balance.<currency>`) are only registered for the providers and currencies enabled at startup. Value updates are always live, but a hot configuration change that enables an additional provider or currency requires a restart before its provider-specific gauge series appears; the consolidated metrics and the fetch freshness gauges adapt on the next export cycle.
