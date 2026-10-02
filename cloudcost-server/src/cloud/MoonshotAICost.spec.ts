@@ -1,5 +1,6 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
+import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 import { MoonshotAIGetBalance } from "./MoonshotAICost";
 
 jest.mock("axios");
@@ -61,6 +62,7 @@ describe("MoonshotAICost", () => {
           headers: expect.objectContaining({
             Authorization: "Bearer sk-test",
           }),
+          timeout: COST_HTTP_TIMEOUT_MS,
         }),
       );
     });

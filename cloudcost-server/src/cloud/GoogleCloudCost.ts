@@ -3,6 +3,10 @@ import { BigQuery } from "@google-cloud/bigquery";
 import { OTelTracer } from "../OTelContext";
 import { CostBreakdownInterface } from "./CostBreakdownInterface";
 
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]+$/;
+const MAXIMUM_BYTES_BILLED = "1000000000";
+const JOB_TIMEOUT_MS = 300000;
+
 export async function GoogleCloudGetMonthCurrent(
   context: Span,
 ): Promise<CostBreakdownInterface> {
@@ -20,6 +24,19 @@ export async function GoogleCloudGetMonthCurrent(
       span.end();
       throw new Error(
         "Missing Google Cloud billing configuration: GOOGLECLOUD_BILLING_PROJECT_ID, GOOGLECLOUD_BILLING_DATASET, GOOGLECLOUD_BILLING_TABLE",
+      );
+    }
+
+    // The table name is interpolated into the query, so validate each
+    // component as defense-in-depth against identifier injection.
+    if (
+      !IDENTIFIER_PATTERN.test(billingProjectId) ||
+      !IDENTIFIER_PATTERN.test(billingDataset) ||
+      !IDENTIFIER_PATTERN.test(billingTable)
+    ) {
+      span.end();
+      throw new Error(
+        "Invalid Google Cloud billing configuration: GOOGLECLOUD_BILLING_PROJECT_ID, GOOGLECLOUD_BILLING_DATASET and GOOGLECLOUD_BILLING_TABLE may only contain letters, digits, underscores and dashes",
       );
     }
 
@@ -46,6 +63,8 @@ export async function GoogleCloudGetMonthCurrent(
     const [rows] = await bigquery.query({
       query,
       params: { invoiceMonth },
+      maximumBytesBilled: MAXIMUM_BYTES_BILLED,
+      jobTimeoutMs: JOB_TIMEOUT_MS,
     });
 
     const services: Record<string, number> = {};

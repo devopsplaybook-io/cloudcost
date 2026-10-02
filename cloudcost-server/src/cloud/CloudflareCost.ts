@@ -1,9 +1,14 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelTracer } from "../OTelContext";
-import { CostBreakdownInterface } from "./CostBreakdownInterface";
+import {
+  COST_HTTP_TIMEOUT_MS,
+  CostBreakdownInterface,
+} from "./CostBreakdownInterface";
 
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
+const ZONES_PER_PAGE = 50;
+const ZONES_MAX_PAGES = 100;
 
 interface Subscription {
   price?: number;
@@ -44,7 +49,7 @@ export async function CloudflareGetMonthCurrent(
     // Account-level subscriptions (Workers, R2, Stream, etc.)
     const subResponse = await axios.get(
       `${CLOUDFLARE_API_BASE}/accounts/${accountId}/subscriptions`,
-      { headers },
+      { headers, timeout: COST_HTTP_TIMEOUT_MS },
     );
     const accountSubs: Subscription[] = subResponse.data?.result ?? [];
     for (const sub of accountSubs) {
@@ -56,18 +61,38 @@ export async function CloudflareGetMonthCurrent(
       services[name] = parseFloat(((services[name] || 0) + price).toFixed(2));
     }
 
-    // Zone-level plan subscriptions (Pro, Business, Enterprise per zone)
-    const zonesResponse = await axios.get(
-      `${CLOUDFLARE_API_BASE}/zones?account.id=${accountId}&per_page=50`,
-      { headers },
-    );
-    const zones: Zone[] = zonesResponse.data?.result ?? [];
-    for (const zone of zones) {
-      const planName = zone.plan?.name;
-      const planPrice = zone.plan?.price ?? 0;
-      if (!planName || planPrice === 0) continue;
-      const key = `Zone Plan: ${planName}`;
-      services[key] = parseFloat(((services[key] || 0) + planPrice).toFixed(2));
+    // Zone-level plan subscriptions (Pro, Business, Enterprise per zone);
+    // paginate so accounts with more than one page of zones are not
+    // underreported.
+    let page = 1;
+    let totalPages = 1;
+    while (page <= totalPages) {
+      const zonesResponse = await axios.get(`${CLOUDFLARE_API_BASE}/zones`, {
+        headers,
+        timeout: COST_HTTP_TIMEOUT_MS,
+        params: {
+          "account.id": accountId,
+          per_page: ZONES_PER_PAGE,
+          page,
+        },
+      });
+      const zones: Zone[] = zonesResponse.data?.result ?? [];
+      for (const zone of zones) {
+        const planName = zone.plan?.name;
+        const planPrice = zone.plan?.price ?? 0;
+        if (!planName || planPrice === 0) continue;
+        const key = `Zone Plan: ${planName}`;
+        services[key] = parseFloat(
+          ((services[key] || 0) + planPrice).toFixed(2),
+        );
+      }
+      const resultInfo = zonesResponse.data?.result_info;
+      totalPages =
+        typeof resultInfo?.total_pages === "number" ? resultInfo.total_pages : 1;
+      if (totalPages > ZONES_MAX_PAGES) {
+        totalPages = ZONES_MAX_PAGES;
+      }
+      page += 1;
     }
 
     let total = 0;

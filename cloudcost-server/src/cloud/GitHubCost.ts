@@ -2,7 +2,10 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelTracer } from "../OTelContext";
 import { Config } from "../Config";
-import { CostBreakdownInterface } from "./CostBreakdownInterface";
+import {
+  COST_HTTP_TIMEOUT_MS,
+  CostBreakdownInterface,
+} from "./CostBreakdownInterface";
 
 const GITHUB_API_BASE = "https://api.github.com";
 
@@ -57,6 +60,7 @@ export async function GitHubGetMonthCurrent(
           year: now.getUTCFullYear(),
           month: now.getUTCMonth() + 1,
         },
+        timeout: COST_HTTP_TIMEOUT_MS,
       },
     );
 

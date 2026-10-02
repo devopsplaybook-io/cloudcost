@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { Config } from "../Config";
+import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 import { GitHubGetMonthCurrent } from "./GitHubCost";
 
 jest.mock("axios");
@@ -64,6 +65,7 @@ describe("GitHubCost", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer test-token",
         }),
+        timeout: COST_HTTP_TIMEOUT_MS,
       }),
     );
   });

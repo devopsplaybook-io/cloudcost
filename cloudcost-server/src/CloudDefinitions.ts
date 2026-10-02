@@ -80,6 +80,25 @@ export const cost: Record<string, CloudCost> = {
   github: { total: 0, services: {} },
 };
 
+export interface FetchStatus {
+  success: boolean | null;
+  lastSuccessTime: number | null;
+}
+
+// Latest fetch outcome per provider (`null` = no attempt yet), so staleness
+// and repeated failures are visible in the metric stream.
+export const fetchStatus: Record<string, FetchStatus> = {
+  aws: { success: null, lastSuccessTime: null },
+  azure: { success: null, lastSuccessTime: null },
+  alibabacloud: { success: null, lastSuccessTime: null },
+  googlecloud: { success: null, lastSuccessTime: null },
+  cloudflare: { success: null, lastSuccessTime: null },
+  github: { success: null, lastSuccessTime: null },
+  deepseek: { success: null, lastSuccessTime: null },
+  moonshotai: { success: null, lastSuccessTime: null },
+  zai: { success: null, lastSuccessTime: null },
+};
+
 // GitHub currently has no documented API for a remaining raw-token balance.
 // Keep the source extensible without substituting Copilot usage for a balance.
 export const githubTokenBalance: { remaining: number | undefined } = {
