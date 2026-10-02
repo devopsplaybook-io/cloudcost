@@ -9,9 +9,10 @@ describe("Config", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    delete process.env.LOG_LEVEL;
     delete process.env.COST_FETCH_CRON;
     delete process.env.COST_NOTIFICATION_SUMMARY_SCHEDULE;
+    delete process.env.COST_NOTIFICATION_THRESHOLD;
+    delete process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS;
     delete process.env.COST_ENABLED_AWS;
     delete process.env.COST_ENABLED_GITHUB;
     delete process.env.GITHUB_ACCOUNT_TYPE;
@@ -20,12 +21,15 @@ describe("Config", () => {
     delete process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe("constructor", () => {
     it("should set default values", () => {
       const config = new Config();
       expect(config.VERSION).toBeTruthy();
       expect(config.SERVICE_ID).toBe("cloudcost-server");
-      expect(config.LOG_LEVEL).toBe("info");
       expect(config.COST_FETCH_CRON).toBe("0 */12 * * *");
       expect(config.COST_ENABLED_ALIBABACLOUD).toBe(false);
       expect(config.COST_ENABLED_AWS).toBe(false);
@@ -60,7 +64,7 @@ describe("Config", () => {
   describe("reload", () => {
     it("should load config from file", async () => {
       mockedFse.readJson.mockResolvedValueOnce({
-        LOG_LEVEL: "debug",
+        COST_NOTIFICATION_THRESHOLD: 25,
         COST_ENABLED_AWS: true,
         COST_ENABLED_AZURE: true,
         COST_ENABLED_GITHUB: true,
@@ -71,7 +75,7 @@ describe("Config", () => {
       const config = new Config();
       await config.reload();
 
-      expect(config.LOG_LEVEL).toBe("debug");
+      expect(config.COST_NOTIFICATION_THRESHOLD).toBe(25);
       expect(config.COST_ENABLED_AWS).toBe(true);
       expect(config.COST_ENABLED_AZURE).toBe(true);
       expect(config.COST_ENABLED_GITHUB).toBe(true);
@@ -80,14 +84,14 @@ describe("Config", () => {
     });
 
     it("should prioritize environment variables over config file", async () => {
-      process.env.LOG_LEVEL = "error";
+      process.env.COST_NOTIFICATION_THRESHOLD = "25";
       process.env.COST_ENABLED_AWS = "false";
       process.env.COST_ENABLED_GITHUB = "true";
       process.env.GITHUB_ACCOUNT_TYPE = "user";
       process.env.GITHUB_ACCOUNT = "env-account";
 
       mockedFse.readJson.mockResolvedValueOnce({
-        LOG_LEVEL: "debug",
+        COST_NOTIFICATION_THRESHOLD: 5,
         COST_ENABLED_AWS: true,
         COST_ENABLED_GITHUB: false,
         GITHUB_ACCOUNT_TYPE: "organization",
@@ -97,7 +101,7 @@ describe("Config", () => {
       const config = new Config();
       await config.reload();
 
-      expect(config.LOG_LEVEL).toBe("error");
+      expect(config.COST_NOTIFICATION_THRESHOLD).toBe(25);
       expect(config.COST_ENABLED_AWS).toBe(false);
       expect(config.COST_ENABLED_GITHUB).toBe(true);
       expect(config.GITHUB_ACCOUNT_TYPE).toBe("user");
@@ -110,7 +114,6 @@ describe("Config", () => {
       const config = new Config();
       await config.reload();
 
-      expect(config.LOG_LEVEL).toBe("info");
       expect(config.COST_FETCH_CRON).toBe("0 */12 * * *");
       expect(config.COST_NOTIFICATION_SUMMARY_SCHEDULE).toBe("");
       expect(config.COST_ENABLED_AWS).toBe(false);
@@ -170,6 +173,58 @@ describe("Config", () => {
           typeof call[0] === "string" && call[0].includes("secret123"),
       );
       expect(loggedSensitive).toBe(false);
+    });
+  });
+
+  describe("numeric validation", () => {
+    function consoleOutput(): string {
+      return jest
+        .mocked(console.log)
+        .mock.calls.map((call) => call.join(" "))
+        .join("\n");
+    }
+
+    it("should ignore a non-numeric value and keep the current one", async () => {
+      const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+      process.env.COST_NOTIFICATION_THRESHOLD = "abc";
+      mockedFse.readJson.mockResolvedValueOnce({});
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_NOTIFICATION_THRESHOLD).toBe(10);
+      expect(consoleOutput()).toContain(
+        "Invalid numeric value for COST_NOTIFICATION_THRESHOLD",
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it("should ignore a blank value and keep the current one", async () => {
+      jest.spyOn(console, "log").mockImplementation(() => {});
+      process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS =
+        "   ";
+      mockedFse.readJson.mockResolvedValueOnce({});
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS).toBe(
+        600,
+      );
+      expect(consoleOutput()).toContain(
+        "Invalid numeric value for OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS",
+      );
+    });
+
+    it("should apply a valid numeric value", async () => {
+      mockedFse.readJson.mockResolvedValueOnce({
+        COST_NOTIFICATION_THRESHOLD: "42",
+      });
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_NOTIFICATION_THRESHOLD).toBe(42);
     });
   });
 });
