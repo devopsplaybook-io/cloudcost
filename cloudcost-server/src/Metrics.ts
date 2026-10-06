@@ -3,7 +3,6 @@ import {
   CLOUDS,
   cost,
   deepseekBalances,
-  fetchStatus,
   moonshotAIBalances,
   githubTokenBalance,
   zaiBalances,
@@ -106,57 +105,6 @@ export function MetricsInit(config: Config): void {
       }
     },
     "Current Month Cloud Cost by Service",
-  );
-
-  // Fetch freshness per provider: a consumer can alert on failures (success
-  // 0) and on stale data (last-success age) instead of trusting pinned or
-  // zero gauges.
-  const fetchStatusSources: { key: string; configFlag: keyof Config }[] = [
-    ...CLOUDS.map((cloud) => ({
-      key: cloud.key,
-      configFlag: cloud.configFlag,
-    })),
-    ...LLM_BALANCE_SOURCES.map((source) => ({
-      key: source.provider,
-      configFlag: source.configFlag,
-    })),
-  ];
-  OTelMeter().createObservableGauge(
-    "cloud.cost.fetch.success",
-    (observableResult) => {
-      for (const source of fetchStatusSources) {
-        if (!config[source.configFlag]) {
-          continue;
-        }
-        const status = fetchStatus[source.key];
-        if (status?.success !== null && status?.success !== undefined) {
-          observableResult.observe(status.success ? 1 : 0, {
-            cloud: source.key,
-          });
-        }
-      }
-    },
-    "Success of the latest cost fetch per provider (1 = success, 0 = failure)",
-  );
-  OTelMeter().createObservableGauge(
-    "cloud.cost.fetch.last-success",
-    (observableResult) => {
-      for (const source of fetchStatusSources) {
-        if (!config[source.configFlag]) {
-          continue;
-        }
-        const status = fetchStatus[source.key];
-        if (
-          status?.lastSuccessTime !== null &&
-          status?.lastSuccessTime !== undefined
-        ) {
-          observableResult.observe(Math.floor(status.lastSuccessTime / 1000), {
-            cloud: source.key,
-          });
-        }
-      }
-    },
-    "Unix timestamp (seconds) of the last successful cost fetch per provider",
   );
 
   // One consolidated credit metric per currency, with one data point per

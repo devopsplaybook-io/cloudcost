@@ -4,7 +4,6 @@ import {
   CLOUDS,
   cost,
   deepseekBalances,
-  fetchStatus,
   moonshotAIBalances,
   zaiBalances,
 } from "./CloudDefinitions";
@@ -21,16 +20,6 @@ export function CostCollectorInit(configIn: Config): void {
   config = configIn;
 }
 
-function reportFetchSuccess(key: string): void {
-  fetchStatus[key].success = true;
-  fetchStatus[key].lastSuccessTime = Date.now();
-}
-
-function reportFetchFailure(key: string): void {
-  // Keep the last success time so staleness stays measurable.
-  fetchStatus[key].success = false;
-}
-
 export async function CostCollectorFetch(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerPricesCheck");
   const tasks: Promise<void>[] = [];
@@ -42,7 +31,6 @@ export async function CostCollectorFetch(): Promise<void> {
           .fetcher(span, config)
           .then((amount) => {
             cost[cloud.key] = amount;
-            reportFetchSuccess(cloud.key);
             span.addEvent(`${cloud.label} cost: ` + JSON.stringify(amount));
             logger.info(
               `Current month ${cloud.label} cost: $${amount.total}`,
@@ -53,7 +41,6 @@ export async function CostCollectorFetch(): Promise<void> {
             });
           })
           .catch((err) => {
-            reportFetchFailure(cloud.key);
             logger.error(`Error fetching ${cloud.label} cost`, err, span);
             span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
           }),
@@ -73,10 +60,8 @@ export async function CostCollectorFetch(): Promise<void> {
           for (const b of balances) {
             deepseekBalances[b.currency] = b.total_balance;
           }
-          reportFetchSuccess("deepseek");
         })
         .catch((err) => {
-          reportFetchFailure("deepseek");
           logger.error("Error fetching DeepSeek balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
@@ -95,10 +80,8 @@ export async function CostCollectorFetch(): Promise<void> {
           for (const b of balances) {
             moonshotAIBalances[b.currency] = b.available_balance;
           }
-          reportFetchSuccess("moonshotai");
         })
         .catch((err) => {
-          reportFetchFailure("moonshotai");
           logger.error("Error fetching Moonshot AI balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
@@ -117,10 +100,8 @@ export async function CostCollectorFetch(): Promise<void> {
           for (const b of balances) {
             zaiBalances[b.currency] = b.available_balance;
           }
-          reportFetchSuccess("zai");
         })
         .catch((err) => {
-          reportFetchFailure("zai");
           logger.error("Error fetching Z.AI balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
