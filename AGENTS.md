@@ -135,8 +135,8 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 - Uses the shared `@devopsplaybook.io/otel-utils` published package
 - `OTelContext.ts` holds module-level singletons for `StandardTracer`, `StandardMeter`, `StandardLogger`
-- Metrics are **observable gauges** — they read from in-memory `cost`, LLM credit balances, fetch status, and verified token balances on each OTel collection cycle
-- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, the per-provider fetch freshness gauges `cloud.cost.fetch.success` (1/0) and `cloud.cost.fetch.last-success` (epoch seconds), and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
+- Metrics are **observable gauges** — they read from in-memory `cost`, LLM credit balances, and verified token balances on each OTel collection cycle
+- Core metrics: `cloud.cost.month-to-date`, `cloud.cost.service.month-to-date`, and consolidated LLM credit metrics `ai.balance.{usd,cny}` (one gauge per currency with one data point per LLM provider via the `provider` attribute plus a `provider="total"` point summing DeepSeek, Moonshot AI, and Z.AI; a provider point is only reported when that provider has credit in the currency, and the currency only when at least one enabled provider does)
 - Per-cloud (`cloud.cost.service.month-to-date.<cloud>`) and per-currency (`ai.balance.<currency>`) gauge registration happens once in `MetricsInit` — a hot config change enabling a provider or currency needs a restart for those series; value updates are always live
 - When `OTEL_BY_CLOUD=true`, additional per-cloud metrics are emitted (e.g., `cloud.cost.service.month-to-date.aws`)
 - GitHub participates in shared cloud totals, notifications, and service costs, and additionally emits `cloud.cost.service.month-to-date.github` when enabled. `ai.balance.token` is provider-extensible, but GitHub currently has no documented remaining raw-token balance endpoint; do not populate it from usage or AI-credit consumption.
@@ -163,7 +163,6 @@ Multi-stage Dockerfile:
 - `env-dev.js` contains real credentials and is gitignored — never commit it
 - The version is single-sourced between the root `package.json` and `cloudcost-server/package.json`: bump **both** together (the root version drives the image tag and the reported `service.version`); `Config.spec.ts` asserts they are equal
 - The `cost` object in `CloudDefinitions.ts` is **mutable shared state** — it is written by `CostCollector` and read by `Metrics` gauge callbacks
-- `fetchStatus` in `CloudDefinitions.ts` tracks per-provider fetch success and last-success time; `CostCollector` is the only writer, `Metrics` reads it for the freshness gauges
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
 - Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)

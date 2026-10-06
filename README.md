@@ -251,8 +251,6 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
 | `cloud.cost.service.month-to-date.github` | GitHub's month-to-date billing breakdown by product and SKU (when `OTEL_BY_CLOUD=true`) | `cloud`, `service` |
-| `cloud.cost.fetch.success`        | Whether the latest cost fetch succeeded, one data point per enabled provider (`1` success / `0` failure) | `cloud`            |
-| `cloud.cost.fetch.last-success`   | Unix timestamp (seconds) of the last successful fetch, one data point per enabled provider | `cloud`            |
 | `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI) plus `total` | `provider`         |
 | `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
 | `ai.balance.token`                 | Remaining raw AI tokens by provider plus `total`, when a provider exposes a verified remaining-token balance | `provider`         |
@@ -263,4 +261,4 @@ The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`
 
 GitHub is included in the `cloud.cost.month-to-date` provider and overall totals and notification summaries. GitHub's published Copilot endpoints report usage and AI-credit consumption, not a remaining raw-token balance; accordingly, `ai.balance.token` does not report a GitHub value unless a future API provides a verified remaining-token quantity.
 
-Which gauges exist is decided at startup: the per-cloud service gauges (`cloud.cost.service.month-to-date.<cloud>`) and the per-currency LLM credit gauges (`ai.balance.<currency>`) are only registered for the providers and currencies enabled at startup. Value updates are always live, but a hot configuration change that enables an additional provider or currency requires a restart before its provider-specific gauge series appears; the consolidated metrics and the fetch freshness gauges adapt on the next export cycle.
+Which gauges exist is decided at startup: the per-cloud service gauges (`cloud.cost.service.month-to-date.<cloud>`) and the per-currency LLM credit gauges (`ai.balance.<currency>`) are only registered for the providers and currencies enabled at startup. Value updates are always live, but a hot configuration change that enables an additional provider or currency requires a restart before its provider-specific gauge series appears; the consolidated metrics adapt on the next export cycle.
