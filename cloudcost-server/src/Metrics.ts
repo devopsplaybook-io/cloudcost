@@ -6,6 +6,7 @@ import {
   moonshotAIBalances,
   githubTokenBalance,
   zaiBalances,
+  jevBalances,
 } from "./CloudDefinitions";
 import { OTelMeter } from "./OTelContext";
 
@@ -29,6 +30,11 @@ export const LLM_BALANCE_SOURCES: {
     provider: "zai",
     configFlag: "COST_ENABLED_ZAI",
     balances: zaiBalances,
+  },
+  {
+    provider: "jev",
+    configFlag: "COST_ENABLED_JEV",
+    balances: jevBalances,
   },
 ];
 

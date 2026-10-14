@@ -36,6 +36,7 @@ describe("ProviderConfigCheck", () => {
       "DEEPSEEK_API_KEY",
       "MOONSHOTAI_API_KEY",
       "ZAI_API_KEY",
+      "JEV_API_KEY",
     ]) {
       delete process.env[key];
     }
@@ -101,5 +102,26 @@ describe("ProviderConfigCheck", () => {
     expect(mockLogger.warn).toHaveBeenCalledWith(
       "Provider Azure is enabled but missing configuration: AZURE_SUBSCRIPTION_ID or AZURE_COST_SCOPE",
     );
+  });
+
+  it("warns when Jev is enabled without an API key", () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+
+    ValidateProviderConfigs(config);
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "Provider Jev is enabled but missing configuration: JEV_API_KEY",
+    );
+  });
+
+  it("does not warn about Jev when its API key is set", () => {
+    process.env.JEV_API_KEY = "sk-or-test";
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+
+    ValidateProviderConfigs(config);
+
+    expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 });

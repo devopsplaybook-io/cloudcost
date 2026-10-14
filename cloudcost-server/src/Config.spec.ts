@@ -17,6 +17,7 @@ describe("Config", () => {
     delete process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS;
     delete process.env.COST_ENABLED_AWS;
     delete process.env.COST_ENABLED_GITHUB;
+    delete process.env.COST_ENABLED_JEV;
     delete process.env.GITHUB_ACCOUNT_TYPE;
     delete process.env.GITHUB_ACCOUNT;
     delete process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES;
@@ -40,6 +41,7 @@ describe("Config", () => {
       expect(config.COST_ENABLED_DEEPSEEK).toBe(false);
       expect(config.COST_ENABLED_MOONSHOTAI).toBe(false);
       expect(config.COST_ENABLED_ZAI).toBe(false);
+      expect(config.COST_ENABLED_JEV).toBe(false);
       expect(config.COST_ENABLED_CLOUDFLARE).toBe(false);
       expect(config.COST_ENABLED_GITHUB).toBe(false);
       expect(config.GITHUB_ACCOUNT_TYPE).toBe("organization");
@@ -70,6 +72,7 @@ describe("Config", () => {
         COST_ENABLED_AWS: true,
         COST_ENABLED_AZURE: true,
         COST_ENABLED_GITHUB: true,
+        COST_ENABLED_JEV: true,
         GITHUB_ACCOUNT_TYPE: "user",
         GITHUB_ACCOUNT: "sample-account",
       });
@@ -81,6 +84,7 @@ describe("Config", () => {
       expect(config.COST_ENABLED_AWS).toBe(true);
       expect(config.COST_ENABLED_AZURE).toBe(true);
       expect(config.COST_ENABLED_GITHUB).toBe(true);
+      expect(config.COST_ENABLED_JEV).toBe(true);
       expect(config.GITHUB_ACCOUNT_TYPE).toBe("user");
       expect(config.GITHUB_ACCOUNT).toBe("sample-account");
     });

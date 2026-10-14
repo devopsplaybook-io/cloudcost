@@ -4,6 +4,7 @@ import {
   deepseekBalances,
   moonshotAIBalances,
   zaiBalances,
+  jevBalances,
 } from "./CloudDefinitions";
 
 describe("CloudDefinitions", () => {
@@ -81,6 +82,12 @@ describe("CloudDefinitions", () => {
   describe("zaiBalances", () => {
     it("should initialize USD to 0", () => {
       expect(zaiBalances).toEqual({ USD: 0 });
+    });
+  });
+
+  describe("jevBalances", () => {
+    it("should initialize USD to 0", () => {
+      expect(jevBalances).toEqual({ USD: 0 });
     });
   });
 });

@@ -22,6 +22,7 @@ export class Config implements ConfigOTelInterface {
   public COST_ENABLED_DEEPSEEK = false;
   public COST_ENABLED_MOONSHOTAI = false;
   public COST_ENABLED_ZAI = false;
+  public COST_ENABLED_JEV = false;
   public COST_ENABLED_CLOUDFLARE = false;
   public COST_ENABLED_GITHUB = false;
   public GITHUB_ACCOUNT_TYPE: "organization" | "user" = "organization";
@@ -102,6 +103,7 @@ export class Config implements ConfigOTelInterface {
     setIfSet("COST_ENABLED_DEEPSEEK");
     setIfSet("COST_ENABLED_MOONSHOTAI");
     setIfSet("COST_ENABLED_ZAI");
+    setIfSet("COST_ENABLED_JEV");
     setIfSet("COST_ENABLED_CLOUDFLARE");
     setIfSet("COST_ENABLED_GITHUB");
     setIfSet("GITHUB_ACCOUNT_TYPE");

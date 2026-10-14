@@ -73,6 +73,11 @@ const PROVIDER_CHECKS: {
     configFlag: "COST_ENABLED_ZAI",
     missing: () => missingEnvKeys(["ZAI_API_KEY"]),
   },
+  {
+    label: "Jev",
+    configFlag: "COST_ENABLED_JEV",
+    missing: () => missingEnvKeys(["JEV_API_KEY"]),
+  },
 ];
 
 /**

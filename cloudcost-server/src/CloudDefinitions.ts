@@ -71,6 +71,10 @@ export const zaiBalances: Record<string, number> = {
   USD: 0,
 };
 
+export const jevBalances: Record<string, number> = {
+  USD: 0,
+};
+
 export const cost: Record<string, CloudCost> = {
   aws: { total: 0, services: {} },
   azure: { total: 0, services: {} },
