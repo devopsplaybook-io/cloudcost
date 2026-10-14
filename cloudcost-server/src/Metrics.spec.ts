@@ -1,6 +1,11 @@
 import { StandardMeter } from "@devopsplaybook.io/otel-utils";
 import { Config } from "./Config";
-import { cost, githubTokenBalance } from "./CloudDefinitions";
+import {
+  cost,
+  githubTokenBalance,
+  jevBalances,
+  zaiBalances,
+} from "./CloudDefinitions";
 import { MetricsInit } from "./Metrics";
 import { OTelMeter } from "./OTelContext";
 
@@ -31,6 +36,8 @@ describe("Metrics", () => {
     jest.mocked(OTelMeter).mockReturnValue(meter);
     cost.github = { total: 0, services: {} };
     githubTokenBalance.remaining = undefined;
+    jevBalances.USD = 0;
+    zaiBalances.USD = 0;
   });
 
   function collect(name: string): { value: number; attributes?: Record<string, string> }[] {
@@ -96,5 +103,42 @@ describe("Metrics", () => {
       false,
     );
     expect(callbacks.has("ai.balance.token")).toBe(false);
+  });
+
+  it("reports Jev credit in the USD gauge and sums it into the total", () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    config.COST_ENABLED_ZAI = true;
+    jevBalances.USD = 5;
+    zaiBalances.USD = 2;
+
+    MetricsInit(config);
+
+    const points = collect("ai.balance.usd");
+    expect(points).toContainEqual({ value: 5, attributes: { provider: "jev" } });
+    expect(points).toContainEqual({ value: 2, attributes: { provider: "zai" } });
+    expect(points).toContainEqual({ value: 7, attributes: { provider: "total" } });
+  });
+
+  it("does not report a Jev point when its balance is zero", () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    config.COST_ENABLED_ZAI = true;
+    jevBalances.USD = 0;
+    zaiBalances.USD = 2;
+
+    MetricsInit(config);
+
+    const points = collect("ai.balance.usd");
+    expect(points).toContainEqual({ value: 2, attributes: { provider: "zai" } });
+    expect(points).not.toContainEqual(
+      expect.objectContaining({ attributes: { provider: "jev" } }),
+    );
+  });
+
+  it("does not register the USD credit gauge when no USD provider is enabled", () => {
+    MetricsInit(new Config());
+
+    expect(callbacks.has("ai.balance.usd")).toBe(false);
   });
 });

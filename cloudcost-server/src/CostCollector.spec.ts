@@ -1,5 +1,10 @@
 import { SpanStatusCode } from "@opentelemetry/api";
-import { CLOUDS, cost, deepseekBalances } from "./CloudDefinitions";
+import {
+  CLOUDS,
+  cost,
+  deepseekBalances,
+  jevBalances,
+} from "./CloudDefinitions";
 import { Config } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
 import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
@@ -9,6 +14,7 @@ import { CloudflareGetMonthCurrent } from "./cloud/CloudflareCost";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
 import { GitHubGetMonthCurrent } from "./cloud/GitHubCost";
 import { GoogleCloudGetMonthCurrent } from "./cloud/GoogleCloudCost";
+import { JevGetBalance } from "./cloud/JevCost";
 import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
 import { ZAIGetBalance } from "./cloud/ZAICost";
 import { OTelTracer } from "./OTelContext";
@@ -28,6 +34,7 @@ jest.mock("./cloud/GoogleCloudCost", () => ({
 }));
 jest.mock("./cloud/MoonshotAICost", () => ({ MoonshotAIGetBalance: jest.fn() }));
 jest.mock("./cloud/ZAICost", () => ({ ZAIGetBalance: jest.fn() }));
+jest.mock("./cloud/JevCost", () => ({ JevGetBalance: jest.fn() }));
 
 jest.mock("./OTelContext", () => {
   const span = {
@@ -64,6 +71,7 @@ describe("CostCollector", () => {
     deepseek: jest.mocked(DeepSeekGetBalance),
     moonshotai: jest.mocked(MoonshotAIGetBalance),
     zai: jest.mocked(ZAIGetBalance),
+    jev: jest.mocked(JevGetBalance),
   };
 
   beforeEach(() => {
@@ -77,6 +85,7 @@ describe("CostCollector", () => {
     llmFetchers.deepseek.mockResolvedValue([]);
     llmFetchers.moonshotai.mockResolvedValue([]);
     llmFetchers.zai.mockResolvedValue([]);
+    llmFetchers.jev.mockResolvedValue([]);
   });
 
   it("should fetch enabled providers in parallel", async () => {
@@ -131,16 +140,40 @@ describe("CostCollector", () => {
     const config = new Config();
     config.COST_ENABLED_DEEPSEEK = true;
     config.COST_ENABLED_MOONSHOTAI = true;
+    config.COST_ENABLED_JEV = true;
     CostCollectorInit(config);
     llmFetchers.deepseek.mockResolvedValue([
       { currency: "USD", total_balance: 5.5 },
     ]);
     llmFetchers.moonshotai.mockRejectedValue(new Error("timeout"));
+    llmFetchers.jev.mockResolvedValue([
+      { currency: "USD", available_balance: 4.25 },
+    ]);
 
     await CostCollectorFetch();
 
     expect(deepseekBalances.USD).toBe(5.5);
+    expect(jevBalances.USD).toBe(4.25);
     expect(llmFetchers.zai).not.toHaveBeenCalled();
+  });
+
+  it("should contain a Jev failure without breaking the other fetches", async () => {
+    const config = new Config();
+    config.COST_ENABLED_DEEPSEEK = true;
+    config.COST_ENABLED_JEV = true;
+    CostCollectorInit(config);
+    llmFetchers.deepseek.mockResolvedValue([
+      { currency: "USD", total_balance: 5.5 },
+    ]);
+    llmFetchers.jev.mockRejectedValue(new Error("401 Unauthorized"));
+
+    await CostCollectorFetch();
+
+    expect(deepseekBalances.USD).toBe(5.5);
+    expect(span.setStatus).toHaveBeenCalledWith({
+      code: SpanStatusCode.ERROR,
+      message: "401 Unauthorized",
+    });
   });
 
   it("should not call disabled providers", async () => {

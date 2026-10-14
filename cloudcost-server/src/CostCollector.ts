@@ -6,8 +6,10 @@ import {
   deepseekBalances,
   moonshotAIBalances,
   zaiBalances,
+  jevBalances,
 } from "./CloudDefinitions";
 import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
+import { JevGetBalance } from "./cloud/JevCost";
 import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
 import { ZAIGetBalance } from "./cloud/ZAICost";
 import { OTelLogger, OTelTracer } from "./OTelContext";
@@ -109,6 +111,26 @@ export async function CostCollectorFetch(): Promise<void> {
   } else {
     logger.info(
       "Z.AI balance fetching disabled (COST_ENABLED_ZAI=false)",
+      span,
+    );
+  }
+
+  if (config.COST_ENABLED_JEV) {
+    tasks.push(
+      JevGetBalance(span)
+        .then((balances) => {
+          for (const b of balances) {
+            jevBalances[b.currency] = b.available_balance;
+          }
+        })
+        .catch((err) => {
+          logger.error("Error fetching Jev balance", err, span);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        }),
+    );
+  } else {
+    logger.info(
+      "Jev balance fetching disabled (COST_ENABLED_JEV=false)",
       span,
     );
   }

@@ -1,6 +1,6 @@
 # CloudCost
 
-CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, Google Cloud, Cloudflare, and GitHub, and exposes the data as OpenTelemetry metrics. It also tracks the remaining account credit of the DeepSeek, Moonshot AI, and Z.AI LLM APIs. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
+CloudCost is a server-only service that periodically fetches month-to-date cloud spending from Alibaba Cloud, AWS, Azure, Google Cloud, Cloudflare, and GitHub, and exposes the data as OpenTelemetry metrics. It also tracks the remaining account credit of the DeepSeek, Moonshot AI, Z.AI, and Jev LLM APIs. It is designed to give a unified view of multi-cloud costs through any OTel-compatible observability stack.
 
 # Philosophy
 
@@ -131,6 +131,7 @@ Each cloud provider is independently enabled. When disabled, no credentials are 
 | `COST_ENABLED_DEEPSEEK`     | Enable DeepSeek API cost tracking  | `false` |
 | `COST_ENABLED_MOONSHOTAI`   | Enable Moonshot AI cost tracking   | `false` |
 | `COST_ENABLED_ZAI`          | Enable Z.AI credit tracking        | `false` |
+| `COST_ENABLED_JEV`          | Enable Jev credit tracking         | `false` |
 | `COST_ENABLED_GITHUB`       | Enable GitHub billing usage   | `false` |
 
 ### AWS
@@ -208,6 +209,14 @@ Z.AI does not expose a monthly bill through its public API. The remaining accoun
 | ------------- | ------------ | ------- |
 | `ZAI_API_KEY` | Z.AI API key |         |
 
+### Jev
+
+TypeSafe AI's Jev does not expose a balance endpoint on its direct API. The remaining Jev credit (USD) is read from the OpenRouter credits API: `GET https://openrouter.ai/api/v1/credits` returns the account's total credits and total usage, and the remaining credit (`total_credits - total_usage`) is exposed as a gauge metric. `JEV_API_KEY` must be an OpenRouter **management (provisioning) key** — the credits endpoint does not accept a regular inference key, and a TypeSafe direct API key will be rejected. Error responses (e.g. a key without account access) are logged as warnings and result in an empty balance instead of a failure.
+
+| Variable      | Description                                                            | Default |
+| ------------- | ---------------------------------------------------------------------- | ------- |
+| `JEV_API_KEY` | OpenRouter management key for the account that pays for Jev inference  |         |
+
 ## Notifications
 
 When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service when the combined month-to-date cost of all enabled providers reaches a higher threshold multiple (e.g. $10, $20, $30) than at the previous measurement. The first measurement after startup only establishes the baseline and never notifies, so no notification is sent at startup for a threshold that is already exceeded. When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
@@ -251,11 +260,11 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `cloud.cost.month-to-date`         | Month-to-date total cost per cloud (and total)                                                           | `cloud`            |
 | `cloud.cost.service.month-to-date` | Month-to-date cost broken down by service                                                                | `cloud`, `service` |
 | `cloud.cost.service.month-to-date.github` | GitHub's month-to-date billing breakdown by product and SKU (when `OTEL_BY_CLOUD=true`) | `cloud`, `service` |
-| `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI) plus `total` | `provider`         |
+| `ai.balance.usd`                   | Remaining LLM account credit in USD, one data point per LLM provider (DeepSeek, Moonshot AI, Z.AI, Jev) plus `total` | `provider`         |
 | `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
 | `ai.balance.token`                 | Remaining raw AI tokens by provider plus `total`, when a provider exposes a verified remaining-token balance | `provider`         |
 
-The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per LLM provider that currently has credit in that currency, plus a `total` data point summing them. A currency with no provider credit emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, and `total`.
+The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per LLM provider that currently has credit in that currency, plus a `total` data point summing them. A currency with no provider credit emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, `jev`, and `total`.
 
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `cloudflare`, `github`, and `total` (for the combined total across all enabled cost providers).
 
