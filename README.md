@@ -211,11 +211,16 @@ Z.AI does not expose a monthly bill through its public API. The remaining accoun
 
 ### Jev
 
-TypeSafe AI's Jev does not expose a balance endpoint on its direct API. The remaining Jev credit (USD) is read from the OpenRouter credits API: `GET https://openrouter.ai/api/v1/credits` returns the account's total credits and total usage, and the remaining credit (`total_credits - total_usage`) is exposed as a gauge metric. `JEV_API_KEY` must be an OpenRouter **management (provisioning) key** — the credits endpoint does not accept a regular inference key, and a TypeSafe direct API key will be rejected. Error responses (e.g. a key without account access) are logged as warnings and result in an empty balance instead of a failure.
+TypeSafe AI's Jev does not expose a balance endpoint on its direct API (verified 2026-10-14: only `POST /v1/systemone` is documented and no balance/credits path exists), so a TypeSafe-issued key (e.g. `apikey_...`) cannot fetch a remaining credit — it is logged as a warning and results in an empty balance. The remaining Jev credit (USD) is read from OpenRouter, where Jev is available as `typesafe/jev-router`:
 
-| Variable      | Description                                                            | Default |
-| ------------- | ---------------------------------------------------------------------- | ------- |
-| `JEV_API_KEY` | OpenRouter management key for the account that pays for Jev inference  |         |
+- An OpenRouter **management key** reads the account-wide credit from `GET https://openrouter.ai/api/v1/credits`: remaining credit = `total_credits - total_usage`.
+- An OpenRouter **inference key** is not authorized for that endpoint; the fetcher falls back to `GET https://openrouter.ai/api/v1/auth/key` and reports the key's remaining budget (`limit - usage`). An inference key with no credit limit set cannot report a remaining balance.
+
+Error responses (e.g. a key without account access) are logged as warnings and result in an empty balance instead of a failure.
+
+| Variable      | Description                                                                                                       | Default |
+| ------------- | ------------------------------------------------------------------------------------------------------------------- | ------- |
+| `JEV_API_KEY` | OpenRouter key (`sk-or-v1-...`) for the account that pays for Jev inference — management key or inference key with a credit limit |         |
 
 ## Notifications
 
