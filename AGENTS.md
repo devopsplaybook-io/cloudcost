@@ -166,7 +166,7 @@ Multi-stage Dockerfile:
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
 - Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)
-- Jev is handled the same way (remaining credit in USD): TypeSafe AI's direct API has no balance endpoint, so the credit is derived from OpenRouter's `GET /api/v1/credits` (`total_credits - total_usage`); `JEV_API_KEY` must be an OpenRouter management (provisioning) key, not a TypeSafe direct key or a regular inference key
+- Jev is handled the same way (remaining credit in USD): TypeSafe AI's direct API has no balance endpoint, so the credit is derived from OpenRouter (`typesafe/jev-router`): a management key reads the account-wide credit from `GET /api/v1/credits` (`total_credits - total_usage`), and an inference key falls back to `GET /api/v1/auth/key` (`limit - usage`, empty when the key has no credit limit). A non-OpenRouter key (e.g. a TypeSafe `apikey_...` key) is logged as a warning and yields an empty balance
 - GitHub billing is handled as a normal provider in `CLOUDS`. `GITHUB_ACCOUNT_TYPE` selects `organization` or `user`, `GITHUB_ACCOUNT` identifies that account, and `GITHUB_TOKEN` authorizes the billing usage request.
 - All fetchers use the shared `COST_HTTP_TIMEOUT_MS` (30 s) request timeout; the Azure fetcher retries 429/5xx responses up to 4 attempts honoring `Retry-After`
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class
