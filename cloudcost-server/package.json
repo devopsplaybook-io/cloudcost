@@ -1,6 +1,6 @@
 {
   "name": "cloudcost-server",
-  "version": "0.19.0",
+  "version": "0.19.1",
   "author": "",
   "license": "MIT",
   "scripts": {
@@ -15,27 +15,27 @@
   "dependencies": {
     "@alicloud/bssopenapi20171214": "^4.1.1",
     "@alicloud/openapi-client": "^0.4.15",
-    "@aws-sdk/client-cost-explorer": "^3.1136.0",
+    "@aws-sdk/client-cost-explorer": "^3.1152.0",
     "@azure/arm-costmanagement": "^1.0.0",
-    "@azure/identity": "^4.13.3",
-    "@devopsplaybook.io/common-utils": "^1.9.2",
-    "@devopsplaybook.io/otel-utils": "^1.1.5",
-    "@google-cloud/bigquery": "^9.1.0",
+    "@azure/identity": "^4.14.0",
+    "@devopsplaybook.io/common-utils": "^1.15.1",
+    "@devopsplaybook.io/otel-utils": "^1.5.1",
+    "@google-cloud/bigquery": "^9.3.0",
     "axios": "^1.20.0",
     "debug": "^4.4.3",
-    "dotenv": "^17.4.2",
-    "fs-extra": "^11.4.0",
+    "dotenv": "^18.0.8",
+    "fs-extra": "^11.4.1",
     "node-cron": "^4.6.0"
   },
   "devDependencies": {
-    "@swc/core": "^1.16.2",
+    "@swc/core": "^1.16.18",
     "@swc/jest": "^0.2.39",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.5",
     "@types/node-cron": "^3.0.11",
     "jest": "^30.5.2",
-    "oxlint": "^1.83.0",
+    "oxlint": "^1.88.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
