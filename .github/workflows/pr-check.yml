@@ -15,6 +15,7 @@ jobs:
     uses: devopsplaybook-io/common-utils/.github/workflows/reusable-pr-verify.yml@main
     with:
       node_app_directories: '["cloudcost-server"]'
+      node_version: '24'
       docker_platforms: "linux/amd64"
     secrets:
       DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}

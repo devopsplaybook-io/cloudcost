@@ -35,7 +35,7 @@ cloudcost/
 │   ├── package.json
 │   ├── jest.config.js
 │   └── tsconfig.json
-├── Dockerfile                 # Multi-stage build (node:22-alpine)
+├── Dockerfile                 # Multi-stage build (node:24-alpine)
 ├── ecosystem.config.js        # PM2 process manager config for dev
 ├── env-dev.js                 # Local dev credentials (gitignored)
 └── docs/dev/                  # Dev scripts (run-dev-env.sh, run-dev-dependencies-rebuild.sh)
@@ -43,7 +43,7 @@ cloudcost/
 
 ## Tech Stack
 
-- **Runtime:** Node.js 22, TypeScript 7
+- **Runtime:** Node.js 24, TypeScript 7
 - **Build:** `tsc` (TypeScript 7 native compiler, no bundler)
 - **Test:** Jest 30 + `@swc/jest` transform with v8 coverage (test files: `*.spec.ts` co-located in `src/`)
 - **Lint:** oxlint (recommended preset)
@@ -153,8 +153,8 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 Multi-stage Dockerfile:
 
-- **Builder stage:** `node:22-alpine`, installs build tools, runs `npm ci && npm run build && npm prune --omit=dev` so only production modules are carried over
-- **Runtime stage:** `node:22-alpine`, copies the pruned `node_modules`, `dist/`, `config.json`, and `package.json`
+- **Builder stage:** `node:24-alpine`, installs build tools, runs `npm ci && npm run build && npm prune --omit=dev` so only production modules are carried over
+- **Runtime stage:** `node:24-alpine`, copies the pruned `node_modules`, `dist/`, `config.json`, and `package.json`
 - Runs as the non-root `node` user (`USER node`)
 - Entry point: `dist/App.js`
 
