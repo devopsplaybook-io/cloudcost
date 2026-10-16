@@ -2,7 +2,7 @@ import { watchFile } from "fs-extra";
 import * as cron from "node-cron";
 import { Config } from "./Config";
 import { CostCollectorFetch } from "./CostCollector";
-import { NotificationCheckThreshold } from "./NotificationService";
+import { NotificationCheckLLMBalances, NotificationCheckThreshold } from "./NotificationService";
 import { OTelLogger } from "./OTelContext";
 import { Start } from "./Start";
 
@@ -49,6 +49,7 @@ jest.mock("./Metrics", () => ({ MetricsInit: jest.fn() }));
 jest.mock("./NotificationService", () => ({
   NotificationInit: jest.fn(),
   NotificationCheckThreshold: jest.fn(),
+  NotificationCheckLLMBalances: jest.fn(),
   NotificationSendSummary: jest.fn(),
 }));
 
@@ -86,6 +87,7 @@ describe("Start", () => {
     mockConfig.reload.mockResolvedValue(undefined);
     jest.mocked(CostCollectorFetch).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckThreshold).mockResolvedValue(undefined);
+    jest.mocked(NotificationCheckLLMBalances).mockResolvedValue(undefined);
   });
 
   it("should schedule the fetch cron with noOverlap when the expression is valid", async () => {
@@ -98,6 +100,24 @@ describe("Start", () => {
       expect.any(Function),
       { noOverlap: true },
     );
+  });
+
+  it("should check LLM balances after the threshold check on the initial fetch and on each cron fetch", async () => {
+    await Start();
+
+    expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(1);
+    expect(NotificationCheckThreshold).toHaveBeenCalledTimes(1);
+    expect(
+      jest.mocked(NotificationCheckThreshold).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      jest.mocked(NotificationCheckLLMBalances).mock.invocationCallOrder[0],
+    );
+
+    const fetchCronCallback = jest.mocked(cron.schedule).mock.calls[0][1] as () => Promise<void>;
+    await fetchCronCallback();
+
+    expect(NotificationCheckThreshold).toHaveBeenCalledTimes(2);
+    expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(2);
   });
 
   it("should fall back to the default fetch cron when COST_FETCH_CRON is invalid and stay up", async () => {

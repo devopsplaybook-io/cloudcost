@@ -15,7 +15,7 @@ cloudcost/
 │   │   ├── Config.ts          # Config class: env vars > config.json > defaults
 │   │   ├── CloudDefinitions.ts # Registry of cloud providers + in-memory cost state
 │   │   ├── CostCollector.ts   # Orchestrates fetching costs from all enabled providers
-│   │   ├── NotificationService.ts # Threshold + scheduled summary notifications via shared NotificationsClient
+│   │   ├── NotificationService.ts # Threshold, LLM low-credit + scheduled summary notifications via shared NotificationsClient
 │   │   ├── Metrics.ts         # Defines OTel observable gauges from in-memory cost data
 │   │   ├── OTelContext.ts     # Singleton holders for OTel tracer, meter, logger
 │   │   ├── ProviderConfigCheck.ts # Startup report of incomplete provider configs
@@ -99,7 +99,7 @@ npm run dependencies
 5. `MetricsInit(config)` registers OTel observable gauges that read from in-memory state
 6. `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set)
 7. `ValidateProviderConfigs(config)` logs a startup report of enabled providers missing required configuration
-8. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule (`noOverlap: true`); an invalid `COST_FETCH_CRON` is logged and the default schedule is used instead. After each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies)
+8. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule (`noOverlap: true`); an invalid `COST_FETCH_CRON` is logged and the default schedule is used instead. After each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies), and `NotificationCheckLLMBalances()` sends a `warning`/`error` notification when an enabled LLM provider's USD credit crosses below `COST_LLM_BALANCE_ALERT_USD` or becomes empty (same transition-only baseline pattern)
 9. When `COST_NOTIFICATION_SUMMARY_SCHEDULE` is set (non-empty, valid cron, evaluated in UTC), a second `node-cron` job sends `NotificationSendSummary()`: a Markdown summary of the latest known cost metrics for the month; an invalid expression is logged and startup continues without the summary job
 
 ### Adding a New Cloud Provider
@@ -127,6 +127,7 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 - `Config.reload()` is called at startup and on `config.json` file changes (via `fs.watchFile`); a failed reload (e.g. corrupt JSON) is logged and the last good configuration is retained
 - Boolean fields are parsed from strings case-insensitively (`"true"` → `true`); numeric fields reject non-finite values with a logged error and keep the current value
+- `COST_LLM_BALANCE_ALERT_USD` (default `5`, `0` disables) is the per-provider LLM low-credit alert threshold, evaluated on each enabled LLM provider's USD balance at every fetch cycle; a provider crossing into `warning` (below the threshold) or `error` (credit empty) sends a transition-only notification — the first check after startup establishes the baseline, recovery is silent but re-arms the alert
 - Sensitive values (like `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`) are masked in logs
 - Cloud provider credentials are read directly from `process.env` inside each fetcher (not via `Config`)
 - GitHub's account type and name are configurable in `Config`; its token remains an environment-only secret. Organization usage requires billing administrator access and enhanced billing platform availability; user usage includes only charges billed directly to the personal account.
