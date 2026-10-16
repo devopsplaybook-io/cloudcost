@@ -96,39 +96,90 @@ export function NotificationResetThreshold(): void {
 
 const formatUsd = (amount: number): string => `$${amount.toFixed(2)}`;
 
+type LLMBalanceState = "ok" | "warning" | "error";
+
+// Track the severity observed at the previous check for each LLM provider so a
+// notification is sent only when a provider crosses into a low-credit state
+// between two consecutive checks. A missing entry means no previous
+// measurement yet (startup baseline), which never notifies.
+const previousLLMBalanceStates = new Map<string, LLMBalanceState>();
+
 /**
- * Build the Markdown body of the monthly cost summary from the latest known
- * in-memory metrics (the same data the OTel gauges in Metrics.ts expose).
+ * Check the USD credit balance of every enabled LLM provider and send a
+ * notification when a provider drops below the low-credit alert threshold
+ * (`warning`) or runs empty (`error`).
+ * The first check (startup baseline) never notifies; afterwards a notification
+ * is sent only when the state changes into `warning` or `error` between two
+ * consecutive checks. Recovering to `ok` is silent but re-arms the alert.
  */
-export function NotificationBuildSummaryBody(): string {
-  const lines: string[] = [];
-  const enabledClouds = CLOUDS.filter((cloud) => config[cloud.configFlag]);
-
-  lines.push("## Month-to-date cloud costs", "");
-  lines.push("| Cloud | Cost |", "| --- | --- |");
-  let totalCost = 0;
-  for (const cloud of enabledClouds) {
-    totalCost += cost[cloud.key].total;
-    lines.push(`| ${cloud.label} | ${formatUsd(cost[cloud.key].total)} |`);
+export async function NotificationCheckLLMBalances(): Promise<void> {
+  if (!notificationClient || !notificationClient.isEnabled()) {
+    return;
   }
-  lines.push(`| **Total** | **${formatUsd(totalCost)}** |`, "");
 
-  lines.push("## Cost by service", "");
-  for (const cloud of enabledClouds) {
-    lines.push(`### ${cloud.label}`, "");
-    lines.push("| Service | Cost |", "| --- | --- |");
-    const serviceEntries = Object.entries(cost[cloud.key].services);
-    if (serviceEntries.length === 0) {
-      lines.push("| (none) | |");
-    } else {
-      for (const [service, amount] of serviceEntries) {
-        lines.push(`| ${service} | ${formatUsd(amount)} |`);
-      }
+  const threshold = config.COST_LLM_BALANCE_ALERT_USD;
+  if (threshold <= 0) {
+    return;
+  }
+
+  for (const source of LLM_BALANCE_SOURCES) {
+    if (!config[source.configFlag]) {
+      continue;
     }
-    lines.push("");
-  }
+    const balance = source.balances["USD"];
+    if (balance === undefined) {
+      continue;
+    }
+    const state: LLMBalanceState =
+      balance <= 0 ? "error" : balance < threshold ? "warning" : "ok";
+    const previousState = previousLLMBalanceStates.get(source.provider);
+    previousLLMBalanceStates.set(source.provider, state);
 
-  lines.push("## LLM remaining credits", "");
+    // Only notify when a provider crosses into a low-credit state between two
+    // consecutive checks: the baseline measurement never notifies and
+    // recovering to `ok` is silent
+    if (
+      state === "ok" ||
+      previousState === undefined ||
+      previousState === state
+    ) {
+      continue;
+    }
+
+    const title =
+      state === "error"
+        ? `LLM credit depleted: ${source.provider}`
+        : `LLM credit low: ${source.provider}`;
+    const body =
+      state === "error"
+        ? `${source.provider} remaining credit is empty (${formatUsd(balance)} USD).\n\n${buildLLMCreditsTable()}`
+        : `${source.provider} remaining credit dropped below the low-credit alert threshold (${formatUsd(threshold)} USD).\n\n${buildLLMCreditsTable()}`;
+
+    const response =
+      state === "error"
+        ? await notificationClient.error(title, body, "cloudcost")
+        : await notificationClient.warning(title, body, "cloudcost");
+    if (response) {
+      logger.info(`LLM balance notification sent: ${title}`);
+    }
+  }
+}
+
+/**
+ * Reset the LLM balance tracking (useful for testing).
+ * The next check re-establishes the baseline and never notifies.
+ */
+export function NotificationResetLLMBalances(): void {
+  previousLLMBalanceStates.clear();
+}
+
+/**
+ * Build the Markdown "LLM remaining credits" table (all enabled providers ×
+ * currencies with totals) shared by the monthly summary and the low-credit
+ * alert bodies.
+ */
+function buildLLMCreditsTable(): string {
+  const lines: string[] = ["## LLM remaining credits", ""];
   const currencies = new Set<string>();
   for (const source of LLM_BALANCE_SOURCES) {
     if (config[source.configFlag]) {
@@ -172,6 +223,43 @@ export function NotificationBuildSummaryBody(): string {
     });
     lines.push(`| **Total** | ${totalCells.join(" | ")} |`);
   }
+
+  return lines.join("\n");
+}
+
+/**
+ * Build the Markdown body of the monthly cost summary from the latest known
+ * in-memory metrics (the same data the OTel gauges in Metrics.ts expose).
+ */
+export function NotificationBuildSummaryBody(): string {
+  const lines: string[] = [];
+  const enabledClouds = CLOUDS.filter((cloud) => config[cloud.configFlag]);
+
+  lines.push("## Month-to-date cloud costs", "");
+  lines.push("| Cloud | Cost |", "| --- | --- |");
+  let totalCost = 0;
+  for (const cloud of enabledClouds) {
+    totalCost += cost[cloud.key].total;
+    lines.push(`| ${cloud.label} | ${formatUsd(cost[cloud.key].total)} |`);
+  }
+  lines.push(`| **Total** | **${formatUsd(totalCost)}** |`, "");
+
+  lines.push("## Cost by service", "");
+  for (const cloud of enabledClouds) {
+    lines.push(`### ${cloud.label}`, "");
+    lines.push("| Service | Cost |", "| --- | --- |");
+    const serviceEntries = Object.entries(cost[cloud.key].services);
+    if (serviceEntries.length === 0) {
+      lines.push("| (none) | |");
+    } else {
+      for (const [service, amount] of serviceEntries) {
+        lines.push(`| ${service} | ${formatUsd(amount)} |`);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push(buildLLMCreditsTable());
 
   return lines.join("\n");
 }

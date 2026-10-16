@@ -226,6 +226,8 @@ Error responses (e.g. a key without account access) are logged as warnings and r
 
 When configured, CloudCost sends a warning notification through the central [Notifications](https://github.com/devopsplaybook-io/notifications) service when the combined month-to-date cost of all enabled providers reaches a higher threshold multiple (e.g. $10, $20, $30) than at the previous measurement. The first measurement after startup only establishes the baseline and never notifies, so no notification is sent at startup for a threshold that is already exceeded. When `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` is not set, the integration is silently disabled.
 
+CloudCost also watches the remaining credit of each enabled LLM provider (DeepSeek, Moonshot AI, Z.AI, Jev) against the `COST_LLM_BALANCE_ALERT_USD` threshold, evaluated on the provider's USD balance at every cost fetch cycle. When a provider's credit drops below the threshold, a `warning` notification is sent; when the credit is empty, the severity escalates to `error`. Each check is transition-only: the first check after startup only establishes the baseline and never notifies, a notification is sent only when a provider crosses into a low-credit state between two consecutive checks, and a silent recovery re-arms the alert so a later re-crossing notifies again. The notification body states the crossing for the affected provider and lists the remaining credit of all enabled LLM providers per currency (USD and CNY) with totals.
+
 Optionally, CloudCost can also send a regular Markdown summary of all cost metrics for the month: per-provider month-to-date totals with a grand total, the per-service breakdown for each provider, and the remaining LLM account credits. The summary is sent with `info` severity at the configured cron schedule (evaluated in UTC) and always reports the latest known metrics. When the variable is unset or empty, no summary is sent.
 
 | Variable                      | Description                                                         | Default |
@@ -233,6 +235,7 @@ Optionally, CloudCost can also send a regular Markdown summary of all cost metri
 | `NOTIFICATIONS_API`           | Notifications API endpoint                                          |         |
 | `NOTIFICATIONS_TOKEN`         | Notifications API token                                             |         |
 | `COST_NOTIFICATION_THRESHOLD` | Cost threshold in USD that triggers a notification (`0` to disable) | `10`    |
+| `COST_LLM_BALANCE_ALERT_USD` | LLM low-credit alert threshold in USD per enabled LLM provider; warning below the threshold, error when the credit is empty; transition-only (`0` disables) | `5`     |
 | `COST_NOTIFICATION_SUMMARY_SCHEDULE` | Cron expression (UTC) for the regular cost summary notification in Markdown; empty disables | (disabled) |
 
 ## OpenTelemetry

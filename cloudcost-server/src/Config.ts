@@ -38,6 +38,7 @@ export class Config implements ConfigOTelInterface {
   public NOTIFICATIONS_API = "";
   public NOTIFICATIONS_TOKEN = "";
   public COST_NOTIFICATION_THRESHOLD = 10;
+  public COST_LLM_BALANCE_ALERT_USD = 5;
 
   constructor() {
     let version = "1";
@@ -119,5 +120,6 @@ export class Config implements ConfigOTelInterface {
     setIfSet("NOTIFICATIONS_API");
     setIfSet("NOTIFICATIONS_TOKEN", false);
     setIfSet("COST_NOTIFICATION_THRESHOLD");
+    setIfSet("COST_LLM_BALANCE_ALERT_USD");
   }
 }

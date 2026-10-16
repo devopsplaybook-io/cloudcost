@@ -3,13 +3,16 @@ import {
   CLOUDS,
   cost,
   deepseekBalances,
+  jevBalances,
   moonshotAIBalances,
   zaiBalances,
 } from "./CloudDefinitions";
 import { Config } from "./Config";
 import {
+  NotificationCheckLLMBalances,
   NotificationCheckThreshold,
   NotificationInit,
+  NotificationResetLLMBalances,
   NotificationResetThreshold,
   NotificationSendSummary,
 } from "./NotificationService";
@@ -24,6 +27,7 @@ interface MockNotificationsClient {
   isEnabled: jest.Mock;
   info: jest.Mock;
   warning: jest.Mock;
+  error: jest.Mock;
 }
 
 function givenNotificationsClient(enabled: boolean): MockNotificationsClient {
@@ -31,6 +35,7 @@ function givenNotificationsClient(enabled: boolean): MockNotificationsClient {
     isEnabled: jest.fn().mockReturnValue(enabled),
     info: jest.fn().mockResolvedValue({ id: "notification-id" }),
     warning: jest.fn().mockResolvedValue({ id: "notification-id" }),
+    error: jest.fn().mockResolvedValue({ id: "notification-id" }),
   };
   mockedNotificationsClient.mockImplementation(
     () => client as unknown as NotificationsClient,
@@ -48,7 +53,9 @@ describe("NotificationService", () => {
     deepseekBalances.USD = 0;
     moonshotAIBalances.USD = 0;
     zaiBalances.USD = 0;
+    jevBalances.USD = 0;
     NotificationResetThreshold();
+    NotificationResetLLMBalances();
   });
 
   describe("NotificationSendSummary", () => {
@@ -251,6 +258,183 @@ describe("NotificationService", () => {
       await NotificationCheckThreshold();
 
       expect(client.warning).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("NotificationCheckLLMBalances", () => {
+    function givenEnabledConfig(): Config {
+      const config = new Config();
+      config.COST_ENABLED_JEV = true;
+      NotificationInit(config);
+      return config;
+    }
+
+    it("should not notify on the first check below the threshold (startup baseline)", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 2;
+
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).not.toHaveBeenCalled();
+      expect(client.error).not.toHaveBeenCalled();
+    });
+
+    it("should notify when a provider crosses below the threshold between two checks", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 6;
+      await NotificationCheckLLMBalances();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).toHaveBeenCalledTimes(1);
+      expect(client.warning).toHaveBeenCalledWith(
+        "LLM credit low: jev",
+        "jev remaining credit dropped below the low-credit alert threshold ($5.00 USD).\n\n## LLM remaining credits\n\n| Provider | USD |\n| --- |\n| jev | 2.00 |\n| **Total** | **2.00** |",
+        "cloudcost",
+      );
+    });
+
+    it("should not notify again while the balance stays below the threshold", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      jevBalances.USD = 1;
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).not.toHaveBeenCalled();
+      expect(client.error).not.toHaveBeenCalled();
+    });
+
+    it("should escalate to an error notification when the credit reaches zero", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 0;
+      await NotificationCheckLLMBalances();
+
+      expect(client.error).toHaveBeenCalledTimes(1);
+      expect(client.error).toHaveBeenCalledWith(
+        "LLM credit depleted: jev",
+        "jev remaining credit is empty ($0.00 USD).\n\n## LLM remaining credits\n\n| Provider | USD |\n| --- |\n| jev | - |\n| **Total** | - |",
+        "cloudcost",
+      );
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should notify an error on a direct crossing from ok to empty", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 6;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 0;
+      await NotificationCheckLLMBalances();
+
+      expect(client.error).toHaveBeenCalledTimes(1);
+      expect(client.error).toHaveBeenCalledWith(
+        "LLM credit depleted: jev",
+        expect.stringContaining("jev remaining credit is empty ($0.00 USD)"),
+        "cloudcost",
+      );
+    });
+
+    it("should recover silently and re-arm the alert for a later crossing", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 8;
+      await NotificationCheckLLMBalances();
+      expect(client.warning).not.toHaveBeenCalled();
+
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+      expect(client.warning).toHaveBeenCalledWith(
+        "LLM credit low: jev",
+        expect.any(String),
+        "cloudcost",
+      );
+    });
+
+    it("should not notify when the LLM balance alert is disabled (0)", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig().COST_LLM_BALANCE_ALERT_USD = 0;
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 0;
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).not.toHaveBeenCalled();
+      expect(client.error).not.toHaveBeenCalled();
+    });
+
+    it("should not notify when the notifications integration is disabled", async () => {
+      const client = givenNotificationsClient(false);
+      givenEnabledConfig();
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 0;
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).not.toHaveBeenCalled();
+      expect(client.error).not.toHaveBeenCalled();
+    });
+
+    it("should not evaluate a provider that is disabled", async () => {
+      const client = givenNotificationsClient(true);
+      const config = new Config();
+      config.COST_ENABLED_ZAI = true;
+      NotificationInit(config);
+      zaiBalances.USD = 10;
+      deepseekBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      deepseekBalances.USD = 0;
+      await NotificationCheckLLMBalances();
+
+      expect(client.warning).not.toHaveBeenCalled();
+      expect(client.error).not.toHaveBeenCalled();
+    });
+
+    it("should send one notification per provider when two providers cross in the same check", async () => {
+      const client = givenNotificationsClient(true);
+      const config = new Config();
+      config.COST_ENABLED_DEEPSEEK = true;
+      config.COST_ENABLED_ZAI = true;
+      NotificationInit(config);
+      deepseekBalances.USD = 6;
+      zaiBalances.USD = 6;
+      await NotificationCheckLLMBalances();
+
+      deepseekBalances.USD = 0;
+      zaiBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+
+      expect(client.error).toHaveBeenCalledTimes(1);
+      expect(client.error).toHaveBeenCalledWith(
+        "LLM credit depleted: deepseek",
+        expect.stringContaining("| deepseek |"),
+        "cloudcost",
+      );
+      expect(client.warning).toHaveBeenCalledTimes(1);
+      expect(client.warning).toHaveBeenCalledWith(
+        "LLM credit low: zai",
+        expect.stringContaining("| zai |"),
+        "cloudcost",
+      );
     });
   });
 });
