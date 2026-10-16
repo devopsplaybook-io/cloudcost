@@ -2,7 +2,11 @@ import { watchFile } from "fs-extra";
 import * as cron from "node-cron";
 import { Config } from "./Config";
 import { CostCollectorFetch } from "./CostCollector";
-import { NotificationCheckLLMBalances, NotificationCheckThreshold } from "./NotificationService";
+import {
+  NotificationCheckBudget,
+  NotificationCheckLLMBalances,
+  NotificationCheckThreshold,
+} from "./NotificationService";
 import { OTelLogger } from "./OTelContext";
 import { Start } from "./Start";
 
@@ -49,6 +53,7 @@ jest.mock("./Metrics", () => ({ MetricsInit: jest.fn() }));
 jest.mock("./NotificationService", () => ({
   NotificationInit: jest.fn(),
   NotificationCheckThreshold: jest.fn(),
+  NotificationCheckBudget: jest.fn(),
   NotificationCheckLLMBalances: jest.fn(),
   NotificationSendSummary: jest.fn(),
 }));
@@ -87,6 +92,7 @@ describe("Start", () => {
     mockConfig.reload.mockResolvedValue(undefined);
     jest.mocked(CostCollectorFetch).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckThreshold).mockResolvedValue(undefined);
+    jest.mocked(NotificationCheckBudget).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckLLMBalances).mockResolvedValue(undefined);
   });
 
@@ -102,21 +108,29 @@ describe("Start", () => {
     );
   });
 
-  it("should check LLM balances after the threshold check on the initial fetch and on each cron fetch", async () => {
+  it("should run the budget and LLM checks after the threshold check on the initial fetch and on each cron fetch", async () => {
     await Start();
 
     expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(1);
+    expect(NotificationCheckBudget).toHaveBeenCalledTimes(1);
     expect(NotificationCheckThreshold).toHaveBeenCalledTimes(1);
-    expect(
-      jest.mocked(NotificationCheckThreshold).mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      jest.mocked(NotificationCheckLLMBalances).mock.invocationCallOrder[0],
-    );
+    const thresholdOrder = jest.mocked(
+      NotificationCheckThreshold,
+    ).mock.invocationCallOrder[0];
+    const budgetOrder = jest.mocked(
+      NotificationCheckBudget,
+    ).mock.invocationCallOrder[0];
+    const llmOrder = jest.mocked(
+      NotificationCheckLLMBalances,
+    ).mock.invocationCallOrder[0];
+    expect(thresholdOrder).toBeLessThan(budgetOrder);
+    expect(budgetOrder).toBeLessThan(llmOrder);
 
     const fetchCronCallback = jest.mocked(cron.schedule).mock.calls[0][1] as () => Promise<void>;
     await fetchCronCallback();
 
     expect(NotificationCheckThreshold).toHaveBeenCalledTimes(2);
+    expect(NotificationCheckBudget).toHaveBeenCalledTimes(2);
     expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(2);
   });
 
