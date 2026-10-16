@@ -42,18 +42,13 @@ export async function NotificationCheckThreshold(): Promise<void> {
     return;
   }
 
-  // Calculate total cost across all enabled clouds
-  let totalCost = 0;
-  for (const cloud of CLOUDS) {
-    if (config[cloud.configFlag]) {
-      totalCost += cost[cloud.key].total;
-    }
-  }
-
   const threshold = config.COST_NOTIFICATION_THRESHOLD;
   if (threshold <= 0) {
     return;
   }
+
+  const totalCost = getEnabledTotalCost();
+  const projectedMonthEnd = projectMonthEnd(totalCost);
 
   // Calculate which threshold multiple the current cost corresponds to
   const currentMultiple = Math.floor(totalCost / threshold);
@@ -68,12 +63,10 @@ export async function NotificationCheckThreshold(): Promise<void> {
     currentMultiple > 0
   ) {
     const thresholdAmount = currentMultiple * threshold;
-    const breakdown = CLOUDS.filter((c) => config[c.configFlag])
-      .map((c) => `${c.label}: $${cost[c.key].total.toFixed(2)}`)
-      .join(", ");
+    const budget = config.COST_BUDGET_MONTHLY_USD;
 
     const title = `Cloud cost threshold reached: $${thresholdAmount.toFixed(2)}`;
-    const body = `Total month-to-date cost has reached $${totalCost.toFixed(2)} (${breakdown})`;
+    const body = `Total month-to-date cost has reached ${formatUsd(totalCost)} (${buildEnabledCostBreakdown()}). Projected month-end: ${formatUsd(projectedMonthEnd)}${budget > 0 ? ` (${budgetPercent(projectedMonthEnd, budget)}% of budget)` : ""}`;
 
     const response = await notificationClient.warning(
       title,
@@ -87,14 +80,54 @@ export async function NotificationCheckThreshold(): Promise<void> {
 }
 
 /**
+ * Total month-to-date cost summed over every enabled cloud provider.
+ */
+function getEnabledTotalCost(): number {
+  let totalCost = 0;
+  for (const cloud of CLOUDS) {
+    if (config[cloud.configFlag]) {
+      totalCost += cost[cloud.key].total;
+    }
+  }
+  return totalCost;
+}
+
+/**
+ * Per-cloud breakdown of the month-to-date cost of every enabled provider,
+ * e.g. `AWS: $12.00, Azure: $5.00`.
+ */
+function buildEnabledCostBreakdown(): string {
+  return CLOUDS.filter((c) => config[c.configFlag])
+    .map((c) => `${c.label}: $${cost[c.key].total.toFixed(2)}`)
+    .join(", ");
+}
+
+/**
+ * Project the month-end cost from the month-to-date total using a linear
+ * run-rate in UTC: MTD / days-elapsed × days-in-month.
+ */
+export function projectMonthEnd(
+  totalMtd: number,
+  now: Date = new Date(),
+): number {
+  const daysInMonthUtc = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  return (totalMtd / now.getUTCDate()) * daysInMonthUtc;
+}
+
+const formatUsd = (amount: number): string => `$${amount.toFixed(2)}`;
+
+const budgetPercent = (amount: number, budget: number): number =>
+  Math.round((amount / budget) * 100);
+
+/**
  * Reset the threshold tracking (useful for testing or month rollover).
  * The next measurement re-establishes the baseline and never notifies.
  */
 export function NotificationResetThreshold(): void {
   previousThresholdMultiple = null;
 }
-
-const formatUsd = (amount: number): string => `$${amount.toFixed(2)}`;
 
 type LLMBalanceState = "ok" | "warning" | "error";
 
@@ -173,6 +206,99 @@ export function NotificationResetLLMBalances(): void {
   previousLLMBalanceStates.clear();
 }
 
+// Percentage levels of the monthly budget that trigger a notification when
+// the actual month-to-date spend crosses them.
+const BUDGET_ALERT_LEVELS = [50, 75, 100];
+
+// Track the highest budget percentage level crossed at the previous check
+// (index into BUDGET_ALERT_LEVELS, `-1` when none) so a notification is sent
+// only for levels newly crossed between two consecutive checks. `null` means
+// no previous check yet (startup baseline), which never notifies.
+let previousBudgetLevel: number | null = null;
+
+// Track whether the month-end projection exceeded the budget at the previous
+// check so a single forecast notification is sent when it first does.
+// `null` means no previous check yet (startup baseline), which never notifies.
+let previousForecastExceeded: boolean | null = null;
+
+/**
+ * Check the month-to-date spend against the configured monthly budget
+ * (`COST_BUDGET_MONTHLY_USD`) and send notifications when it crosses one of
+ * the fixed percentage levels (50/75/100%), plus a single notification when
+ * the projected month-end cost first exceeds the budget (linear UTC run-rate).
+ * Both checks are transition-only: the first check after startup establishes
+ * the baseline and never notifies, drops to a lower level or below the budget
+ * are silent but re-arm the alerts.
+ */
+export async function NotificationCheckBudget(): Promise<void> {
+  if (!notificationClient || !notificationClient.isEnabled()) {
+    return;
+  }
+
+  const budget = config.COST_BUDGET_MONTHLY_USD;
+  if (budget <= 0) {
+    return;
+  }
+
+  const totalCost = getEnabledTotalCost();
+  const projectedMonthEnd = projectMonthEnd(totalCost);
+
+  let currentLevelIndex = -1;
+  for (let i = 0; i < BUDGET_ALERT_LEVELS.length; i++) {
+    if (totalCost >= (BUDGET_ALERT_LEVELS[i] / 100) * budget) {
+      currentLevelIndex = i;
+    }
+  }
+
+  const previousLevelIndex = previousBudgetLevel;
+  previousBudgetLevel = currentLevelIndex;
+
+  // Notify once per newly crossed level, in ascending order: the baseline
+  // never notifies and a drop to a lower level is silent but re-arms
+  if (previousLevelIndex !== null && currentLevelIndex > previousLevelIndex) {
+    const breakdown = buildEnabledCostBreakdown();
+    for (let i = previousLevelIndex + 1; i <= currentLevelIndex; i++) {
+      const level = BUDGET_ALERT_LEVELS[i];
+      const title = `Cloud cost budget reached: ${level}% of ${formatUsd(budget)} used`;
+      const body = `Total month-to-date cost has reached ${formatUsd(totalCost)} (${breakdown}) — ${level}% of the ${formatUsd(budget)} monthly budget. Projected month-end: ${formatUsd(projectedMonthEnd)} (${budgetPercent(projectedMonthEnd, budget)}% of budget).`;
+
+      const response = await notificationClient.warning(
+        title,
+        body,
+        "cloudcost",
+      );
+      if (response) {
+        logger.info(`Budget notification sent: ${title}`);
+      }
+    }
+  }
+
+  const forecastExceeded = projectedMonthEnd > budget;
+  const previousForecast = previousForecastExceeded;
+  previousForecastExceeded = forecastExceeded;
+
+  // Notify once when the projection first exceeds the budget: the baseline
+  // never notifies and falling back below the budget is silent but re-arms
+  if (previousForecast === false && forecastExceeded) {
+    const title = "Cloud cost forecast exceeds monthly budget";
+    const body = `The projected month-end cost of ${formatUsd(projectedMonthEnd)} exceeds the ${formatUsd(budget)} monthly budget (${budgetPercent(projectedMonthEnd, budget)}%). Total month-to-date cost is currently ${formatUsd(totalCost)} (${buildEnabledCostBreakdown()}).`;
+
+    const response = await notificationClient.warning(title, body, "cloudcost");
+    if (response) {
+      logger.info(`Forecast notification sent: ${title}`);
+    }
+  }
+}
+
+/**
+ * Reset the budget and forecast tracking (useful for testing or month
+ * rollover). The next check re-establishes the baseline and never notifies.
+ */
+export function NotificationResetBudget(): void {
+  previousBudgetLevel = null;
+  previousForecastExceeded = null;
+}
+
 /**
  * Build the Markdown "LLM remaining credits" table (all enabled providers ×
  * currencies with totals) shared by the monthly summary and the low-credit
@@ -243,6 +369,25 @@ export function NotificationBuildSummaryBody(): string {
     lines.push(`| ${cloud.label} | ${formatUsd(cost[cloud.key].total)} |`);
   }
   lines.push(`| **Total** | **${formatUsd(totalCost)}** |`, "");
+
+  const now = new Date();
+  const projectedMonthEnd = projectMonthEnd(totalCost, now);
+  const budget = config.COST_BUDGET_MONTHLY_USD;
+
+  lines.push("## Month-end projection", "");
+  lines.push("| Metric | Value |", "| --- | --- |");
+  lines.push(
+    `| Daily average | ${formatUsd(totalCost / now.getUTCDate())} |`,
+    `| Projected month-end | ${formatUsd(projectedMonthEnd)} |`,
+  );
+  if (budget > 0) {
+    lines.push(`| Monthly budget | ${formatUsd(budget)} |`);
+    lines.push(
+      `| Budget usage | ${budgetPercent(totalCost, budget)}% (${formatUsd(totalCost)} of ${formatUsd(budget)}) |`,
+      `| Projected vs budget | ${budgetPercent(projectedMonthEnd, budget)}% |`,
+    );
+  }
+  lines.push("");
 
   lines.push("## Cost by service", "");
   for (const cloud of enabledClouds) {
