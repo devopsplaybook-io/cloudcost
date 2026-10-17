@@ -40,6 +40,7 @@ export class Config implements ConfigOTelInterface {
   public COST_NOTIFICATION_THRESHOLD = 10;
   public COST_LLM_BALANCE_ALERT_USD = 5;
   public COST_BUDGET_MONTHLY_USD = 0;
+  public COST_FETCH_FAILURE_ALERT_THRESHOLD = 3;
 
   constructor() {
     let version = "1";
@@ -123,5 +124,6 @@ export class Config implements ConfigOTelInterface {
     setIfSet("COST_NOTIFICATION_THRESHOLD");
     setIfSet("COST_LLM_BALANCE_ALERT_USD");
     setIfSet("COST_BUDGET_MONTHLY_USD");
+    setIfSet("COST_FETCH_FAILURE_ALERT_THRESHOLD");
   }
 }

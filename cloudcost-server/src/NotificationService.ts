@@ -1,8 +1,10 @@
 import { NotificationsClient } from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 import { CLOUDS, cost } from "./CloudDefinitions";
+import { FETCH_STALE_AFTER_MS, GetProviderFetchStatus } from "./FetchStatus";
 import { LLM_BALANCE_SOURCES } from "./Metrics";
 import { OTelLogger } from "./OTelContext";
+import { GetIncompleteProviderConfigs } from "./ProviderConfigCheck";
 
 const logger = OTelLogger().createModuleLogger("notification-service");
 
@@ -118,6 +120,42 @@ export function projectMonthEnd(
 
 const formatUsd = (amount: number): string => `$${amount.toFixed(2)}`;
 
+/**
+ * Format a date as `YYYY-MM-DD HH:mm` in UTC (locale-independent) so
+ * notification bodies are deterministic regardless of the host locale.
+ */
+function formatTimestamp(date: Date): string {
+  return date.toISOString().slice(0, 16).replace("T", " ");
+}
+
+/**
+ * Summary table cell for one cloud provider: the latest known cost annotated
+ * with the freshness of the underlying data ("data as of ..." when a fetch
+ * ever succeeded, "no successful fetch yet" otherwise) plus failure/stale
+ * marks when they apply.
+ */
+function buildSummaryCostCell(cloudKey: string): string {
+  const status = GetProviderFetchStatus(cloudKey);
+  const total = formatUsd(cost[cloudKey].total);
+  const base = status?.lastSuccessAt
+    ? `${total} — data as of ${formatTimestamp(status.lastSuccessAt)} UTC`
+    : `${total} — no successful fetch yet`;
+
+  const annotations: string[] = [];
+  if (status?.lastAttemptSuccess === false) {
+    annotations.push("last fetch failed");
+  }
+  if (
+    status?.lastSuccessAt &&
+    Date.now() - status.lastSuccessAt.getTime() > FETCH_STALE_AFTER_MS
+  ) {
+    annotations.push("stale");
+  }
+  return annotations.length > 0
+    ? `${base} (${annotations.join(", ")})`
+    : base;
+}
+
 const budgetPercent = (amount: number, budget: number): number =>
   Math.round((amount / budget) * 100);
 
@@ -204,6 +242,59 @@ export async function NotificationCheckLLMBalances(): Promise<void> {
  */
 export function NotificationResetLLMBalances(): void {
   previousLLMBalanceStates.clear();
+}
+
+/**
+ * Send a `warning` notification for every enabled provider whose fetch has
+ * failed exactly `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive times
+ * (`0` disables the check). The exact-match condition makes the notification
+ * transition-only: it fires once when the failure streak first reaches the
+ * threshold, stays silent for longer streaks, and is re-armed by a successful
+ * fetch (or a restart, which resets the in-memory fetch status).
+ */
+export async function NotificationCheckFetchFailures(): Promise<void> {
+  if (!notificationClient || !notificationClient.isEnabled()) {
+    return;
+  }
+
+  const threshold = config.COST_FETCH_FAILURE_ALERT_THRESHOLD;
+  if (threshold <= 0) {
+    return;
+  }
+
+  for (const cloud of CLOUDS) {
+    if (!config[cloud.configFlag]) {
+      continue;
+    }
+    const status = GetProviderFetchStatus(cloud.key);
+    if (status?.consecutiveFailures !== threshold) {
+      continue;
+    }
+    const title = `Cloud cost fetch failing: ${cloud.label}`;
+    const body = `${cloud.label} cost fetch has failed ${threshold} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
+
+    const response = await notificationClient.warning(title, body, "cloudcost");
+    if (response) {
+      logger.info(`Fetch failure notification sent: ${title}`);
+    }
+  }
+
+  for (const source of LLM_BALANCE_SOURCES) {
+    if (!config[source.configFlag]) {
+      continue;
+    }
+    const status = GetProviderFetchStatus(source.provider);
+    if (status?.consecutiveFailures !== threshold) {
+      continue;
+    }
+    const title = `LLM credit fetch failing: ${source.provider}`;
+    const body = `${source.provider} credit fetch has failed ${threshold} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
+
+    const response = await notificationClient.warning(title, body, "cloudcost");
+    if (response) {
+      logger.info(`Fetch failure notification sent: ${title}`);
+    }
+  }
 }
 
 // Percentage levels of the monthly budget that trigger a notification when
@@ -302,9 +393,11 @@ export function NotificationResetBudget(): void {
 /**
  * Build the Markdown "LLM remaining credits" table (all enabled providers ×
  * currencies with totals) shared by the monthly summary and the low-credit
- * alert bodies.
+ * alert bodies. When `includeFetchStatus` is set, provider rows are annotated
+ * with the state of their last balance fetch (`(no successful fetch yet)` or
+ * `(last fetch failed)`); the Total row is never annotated.
  */
-function buildLLMCreditsTable(): string {
+function buildLLMCreditsTable(includeFetchStatus = false): string {
   const lines: string[] = ["## LLM remaining credits", ""];
   const currencies = new Set<string>();
   for (const source of LLM_BALANCE_SOURCES) {
@@ -330,7 +423,17 @@ function buildLLMCreditsTable(): string {
         const value = source.balances[currency];
         return value !== undefined && value > 0 ? value.toFixed(2) : "-";
       });
-      lines.push(`| ${source.provider} | ${cells.join(" | ")} |`);
+      const status = includeFetchStatus
+        ? GetProviderFetchStatus(source.provider)
+        : undefined;
+      const providerLabel = !includeFetchStatus
+        ? source.provider
+        : status?.lastAttemptSuccess === false
+          ? `${source.provider} (last fetch failed)`
+          : !status?.lastSuccessAt
+            ? `${source.provider} (no successful fetch yet)`
+            : source.provider;
+      lines.push(`| ${providerLabel} | ${cells.join(" | ")} |`);
     }
     const totalCells = currencyList.map((currency) => {
       let currencyTotal = 0;
@@ -361,12 +464,23 @@ export function NotificationBuildSummaryBody(): string {
   const lines: string[] = [];
   const enabledClouds = CLOUDS.filter((cloud) => config[cloud.configFlag]);
 
+  const incompleteConfigs = GetIncompleteProviderConfigs(config);
+  if (incompleteConfigs.length > 0) {
+    lines.push("## Configuration issues", "");
+    for (const { label, missing } of incompleteConfigs) {
+      lines.push(
+        `- ${label} is enabled but missing configuration: ${missing.join(", ")}`,
+      );
+    }
+    lines.push("");
+  }
+
   lines.push("## Month-to-date cloud costs", "");
   lines.push("| Cloud | Cost |", "| --- | --- |");
   let totalCost = 0;
   for (const cloud of enabledClouds) {
     totalCost += cost[cloud.key].total;
-    lines.push(`| ${cloud.label} | ${formatUsd(cost[cloud.key].total)} |`);
+    lines.push(`| ${cloud.label} | ${buildSummaryCostCell(cloud.key)} |`);
   }
   lines.push(`| **Total** | **${formatUsd(totalCost)}** |`, "");
 
@@ -404,14 +518,33 @@ export function NotificationBuildSummaryBody(): string {
     lines.push("");
   }
 
-  lines.push(buildLLMCreditsTable());
+  lines.push(buildLLMCreditsTable(true));
 
   return lines.join("\n");
 }
 
+// Month names in English for the summary title: formatted in UTC from
+// constants so the title is locale-independent.
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
 /**
  * Send a Markdown summary of the latest known cost metrics for the month:
- * per-cloud month-to-date totals, per-service breakdown and LLM credits.
+ * per-cloud month-to-date totals with data freshness, per-service breakdown
+ * and LLM credits, plus a configuration-issues section when an enabled
+ * provider is missing configuration.
  * No-op when the notifications integration is disabled.
  */
 export async function NotificationSendSummary(): Promise<void> {
@@ -419,13 +552,14 @@ export async function NotificationSendSummary(): Promise<void> {
     return;
   }
 
-  const title = "Cloud cost monthly summary";
+  const now = new Date();
+  const title = `Cloud cost summary — ${MONTH_NAMES[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
   const response = await notificationClient.info(
     title,
     NotificationBuildSummaryBody(),
     "cloudcost",
   );
   if (response) {
-    logger.info("Monthly cost summary notification sent");
+    logger.info("Cost summary notification sent");
   }
 }

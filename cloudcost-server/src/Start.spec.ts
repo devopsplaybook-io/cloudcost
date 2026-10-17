@@ -4,6 +4,7 @@ import { Config } from "./Config";
 import { CostCollectorFetch } from "./CostCollector";
 import {
   NotificationCheckBudget,
+  NotificationCheckFetchFailures,
   NotificationCheckLLMBalances,
   NotificationCheckThreshold,
 } from "./NotificationService";
@@ -55,6 +56,7 @@ jest.mock("./NotificationService", () => ({
   NotificationCheckThreshold: jest.fn(),
   NotificationCheckBudget: jest.fn(),
   NotificationCheckLLMBalances: jest.fn(),
+  NotificationCheckFetchFailures: jest.fn(),
   NotificationSendSummary: jest.fn(),
 }));
 
@@ -94,6 +96,7 @@ describe("Start", () => {
     jest.mocked(NotificationCheckThreshold).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckBudget).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckLLMBalances).mockResolvedValue(undefined);
+    jest.mocked(NotificationCheckFetchFailures).mockResolvedValue(undefined);
   });
 
   it("should schedule the fetch cron with noOverlap when the expression is valid", async () => {
@@ -108,10 +111,11 @@ describe("Start", () => {
     );
   });
 
-  it("should run the budget and LLM checks after the threshold check on the initial fetch and on each cron fetch", async () => {
+  it("should run the budget, LLM and fetch-failure checks after the threshold check on the initial fetch and on each cron fetch", async () => {
     await Start();
 
     expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(1);
+    expect(NotificationCheckFetchFailures).toHaveBeenCalledTimes(1);
     expect(NotificationCheckBudget).toHaveBeenCalledTimes(1);
     expect(NotificationCheckThreshold).toHaveBeenCalledTimes(1);
     const thresholdOrder = jest.mocked(
@@ -123,8 +127,12 @@ describe("Start", () => {
     const llmOrder = jest.mocked(
       NotificationCheckLLMBalances,
     ).mock.invocationCallOrder[0];
+    const fetchFailuresOrder = jest.mocked(
+      NotificationCheckFetchFailures,
+    ).mock.invocationCallOrder[0];
     expect(thresholdOrder).toBeLessThan(budgetOrder);
     expect(budgetOrder).toBeLessThan(llmOrder);
+    expect(llmOrder).toBeLessThan(fetchFailuresOrder);
 
     const fetchCronCallback = jest.mocked(cron.schedule).mock.calls[0][1] as () => Promise<void>;
     await fetchCronCallback();
@@ -132,6 +140,7 @@ describe("Start", () => {
     expect(NotificationCheckThreshold).toHaveBeenCalledTimes(2);
     expect(NotificationCheckBudget).toHaveBeenCalledTimes(2);
     expect(NotificationCheckLLMBalances).toHaveBeenCalledTimes(2);
+    expect(NotificationCheckFetchFailures).toHaveBeenCalledTimes(2);
   });
 
   it("should fall back to the default fetch cron when COST_FETCH_CRON is invalid and stay up", async () => {

@@ -6,6 +6,7 @@ import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
 import { MetricsInit } from "./Metrics";
 import {
   NotificationCheckBudget,
+  NotificationCheckFetchFailures,
   NotificationCheckLLMBalances,
   NotificationCheckThreshold,
   NotificationInit,
@@ -61,6 +62,7 @@ export async function Start(): Promise<void> {
     await NotificationCheckThreshold();
     await NotificationCheckBudget();
     await NotificationCheckLLMBalances();
+    await NotificationCheckFetchFailures();
 
     let fetchCronExpression = config.COST_FETCH_CRON;
     if (!cron.validate(fetchCronExpression)) {
@@ -78,6 +80,7 @@ export async function Start(): Promise<void> {
           await NotificationCheckThreshold();
           await NotificationCheckBudget();
           await NotificationCheckLLMBalances();
+          await NotificationCheckFetchFailures();
         } catch (err) {
           logger.error("Unexpected error in cron cost fetch", err);
         }

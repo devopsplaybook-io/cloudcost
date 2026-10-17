@@ -38,7 +38,18 @@ describe("GoogleCloudCost", () => {
     delete process.env.GOOGLECLOUD_BILLING_TABLE;
 
     await expect(GoogleCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
-      "Missing Google Cloud billing configuration",
+      "Missing Google Cloud billing configuration: GOOGLECLOUD_BILLING_TABLE",
+    );
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it("should name every missing billing variable", async () => {
+    delete process.env.GOOGLECLOUD_BILLING_PROJECT_ID;
+    delete process.env.GOOGLECLOUD_BILLING_DATASET;
+    delete process.env.GOOGLECLOUD_BILLING_TABLE;
+
+    await expect(GoogleCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Missing Google Cloud billing configuration: GOOGLECLOUD_BILLING_PROJECT_ID, GOOGLECLOUD_BILLING_DATASET, GOOGLECLOUD_BILLING_TABLE",
     );
     expect(queryMock).not.toHaveBeenCalled();
   });

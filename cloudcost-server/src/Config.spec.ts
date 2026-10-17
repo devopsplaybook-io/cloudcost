@@ -16,6 +16,7 @@ describe("Config", () => {
     delete process.env.COST_NOTIFICATION_THRESHOLD;
     delete process.env.COST_LLM_BALANCE_ALERT_USD;
     delete process.env.COST_BUDGET_MONTHLY_USD;
+    delete process.env.COST_FETCH_FAILURE_ALERT_THRESHOLD;
     delete process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS;
     delete process.env.COST_ENABLED_AWS;
     delete process.env.COST_ENABLED_GITHUB;
@@ -51,6 +52,7 @@ describe("Config", () => {
       expect(config.OTEL_BY_CLOUD).toBe(true);
       expect(config.COST_LLM_BALANCE_ALERT_USD).toBe(5);
       expect(config.COST_BUDGET_MONTHLY_USD).toBe(0);
+      expect(config.COST_FETCH_FAILURE_ALERT_THRESHOLD).toBe(3);
     });
 
     it("should read version from package.json", () => {
@@ -99,6 +101,7 @@ describe("Config", () => {
       process.env.COST_NOTIFICATION_THRESHOLD = "25";
       process.env.COST_LLM_BALANCE_ALERT_USD = "7";
       process.env.COST_BUDGET_MONTHLY_USD = "35";
+      process.env.COST_FETCH_FAILURE_ALERT_THRESHOLD = "7";
       process.env.COST_ENABLED_AWS = "false";
       process.env.COST_ENABLED_GITHUB = "true";
       process.env.GITHUB_ACCOUNT_TYPE = "user";
@@ -108,6 +111,7 @@ describe("Config", () => {
         COST_NOTIFICATION_THRESHOLD: 5,
         COST_LLM_BALANCE_ALERT_USD: 3,
         COST_BUDGET_MONTHLY_USD: 12,
+        COST_FETCH_FAILURE_ALERT_THRESHOLD: 2,
         COST_ENABLED_AWS: true,
         COST_ENABLED_GITHUB: false,
         GITHUB_ACCOUNT_TYPE: "organization",
@@ -120,6 +124,7 @@ describe("Config", () => {
       expect(config.COST_NOTIFICATION_THRESHOLD).toBe(25);
       expect(config.COST_LLM_BALANCE_ALERT_USD).toBe(7);
       expect(config.COST_BUDGET_MONTHLY_USD).toBe(35);
+      expect(config.COST_FETCH_FAILURE_ALERT_THRESHOLD).toBe(7);
       expect(config.COST_ENABLED_AWS).toBe(false);
       expect(config.COST_ENABLED_GITHUB).toBe(true);
       expect(config.GITHUB_ACCOUNT_TYPE).toBe("user");

@@ -15,7 +15,8 @@ cloudcost/
 │   │   ├── Config.ts          # Config class: env vars > config.json > defaults
 │   │   ├── CloudDefinitions.ts # Registry of cloud providers + in-memory cost state
 │   │   ├── CostCollector.ts   # Orchestrates fetching costs from all enabled providers
-│   │   ├── NotificationService.ts # Threshold, monthly budget + forecast, LLM low-credit + scheduled summary notifications via shared NotificationsClient
+│   │   ├── FetchStatus.ts     # In-memory per-provider last-fetch status (timestamp, success, consecutive failures)
+│   │   ├── NotificationService.ts # Threshold, monthly budget + forecast, LLM low-credit, recurring fetch-failure alerts + scheduled summary notifications via shared NotificationsClient
 │   │   ├── Metrics.ts         # Defines OTel observable gauges from in-memory cost data
 │   │   ├── OTelContext.ts     # Singleton holders for OTel tracer, meter, logger
 │   │   ├── ProviderConfigCheck.ts # Startup report of incomplete provider configs
@@ -99,7 +100,7 @@ npm run dependencies
 5. `MetricsInit(config)` registers OTel observable gauges that read from in-memory state
 6. `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set)
 7. `ValidateProviderConfigs(config)` logs a startup report of enabled providers missing required configuration
-8. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule (`noOverlap: true`); an invalid `COST_FETCH_CRON` is logged and the default schedule is used instead. After each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies), `NotificationCheckBudget()` sends a `warning` per newly crossed 50/75/100% level of `COST_BUDGET_MONTHLY_USD` plus a single `warning` when the projected month-end cost first exceeds the budget (same transition-only baseline pattern), and `NotificationCheckLLMBalances()` sends a `warning`/`error` notification when an enabled LLM provider's USD credit crosses below `COST_LLM_BALANCE_ALERT_USD` or becomes empty (same transition-only baseline pattern)
+8. A `node-cron` job calls `CostCollectorFetch()` on the configured schedule (`noOverlap: true`); an invalid `COST_FETCH_CRON` is logged and the default schedule is used instead. After each fetch, `NotificationCheckThreshold()` sends a warning notification when the total cost reaches a threshold multiple higher than at the previous measurement (the first measurement after startup establishes the baseline and never notifies), `NotificationCheckBudget()` sends a `warning` per newly crossed 50/75/100% level of `COST_BUDGET_MONTHLY_USD` plus a single `warning` when the projected month-end cost first exceeds the budget (same transition-only baseline pattern), `NotificationCheckLLMBalances()` sends a `warning`/`error` notification when an enabled LLM provider's USD credit crosses below `COST_LLM_BALANCE_ALERT_USD` or becomes empty (same transition-only baseline pattern), and `NotificationCheckFetchFailures()` sends a `warning` when an enabled provider's fetch streak first reaches `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive failures (exact-match on the threshold, re-armed by a successful fetch)
 9. When `COST_NOTIFICATION_SUMMARY_SCHEDULE` is set (non-empty, valid cron, evaluated in UTC), a second `node-cron` job sends `NotificationSendSummary()`: a Markdown summary of the latest known cost metrics for the month; an invalid expression is logged and startup continues without the summary job
 
 ### Adding a New Cloud Provider
@@ -129,6 +130,7 @@ Priority order: **environment variables > `config.json` > class defaults**.
 - Boolean fields are parsed from strings case-insensitively (`"true"` → `true`); numeric fields reject non-finite values with a logged error and keep the current value
 - `COST_LLM_BALANCE_ALERT_USD` (default `5`, `0` disables) is the per-provider LLM low-credit alert threshold, evaluated on each enabled LLM provider's USD balance at every fetch cycle; a provider crossing into `warning` (below the threshold) or `error` (credit empty) sends a transition-only notification — the first check after startup establishes the baseline, recovery is silent but re-arms the alert
 - `COST_BUDGET_MONTHLY_USD` (default `0`, `0` disables) is the monthly cloud cost budget; each fetch cycle notifies per newly crossed fixed 50/75/100% level of the budget (ascending order, one notification per level) and sends a single notification when the projected month-end cost first exceeds the budget — the projection is a linear UTC run-rate (`MTD / days-elapsed × days-in-month`); both checks are transition-only (the first check after startup establishes the baseline, drops to a lower level or below the budget are silent but re-arm)
+- `COST_FETCH_FAILURE_ALERT_THRESHOLD` (default `3`, `0` disables) is the number of consecutive failed fetches per enabled provider before a transition-only `warning` notification; it fires exactly when the streak reaches the threshold and is re-armed by a successful fetch
 - Sensitive values (like `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`) are masked in logs
 - Cloud provider credentials are read directly from `process.env` inside each fetcher (not via `Config`)
 - GitHub's account type and name are configurable in `Config`; its token remains an environment-only secret. Organization usage requires billing administrator access and enhanced billing platform availability; user usage includes only charges billed directly to the personal account.
@@ -165,6 +167,8 @@ Multi-stage Dockerfile:
 - `env-dev.js` contains real credentials and is gitignored — never commit it
 - The version is single-sourced between the root `package.json` and `cloudcost-server/package.json`: bump **both** together (the root version drives the image tag and the reported `service.version`); `Config.spec.ts` asserts they are equal
 - The `cost` object in `CloudDefinitions.ts` is **mutable shared state** — it is written by `CostCollector` and read by `Metrics` gauge callbacks
+- The per-provider fetch status in `FetchStatus.ts` is **in-memory only** (a restart resets it, including the consecutive-failure counting that drives the failure alert); the summary's staleness annotation uses a fixed 24h threshold (`FETCH_STALE_AFTER_MS`, not configurable — 2 cycles of the default 12h fetch cron)
+- The summary's `Configuration issues` section reuses the `ProviderConfigCheck` rules (`GetIncompleteProviderConfigs`) at summary time and only detects **missing** configuration variables: a misconfiguration that still yields a successful fetch (e.g. Jev with a non-OpenRouter key returning an empty balance) is not flagged there
 - DeepSeek is handled separately from the `CLOUDS` array (it tracks account balance, not service-level cost)
 - Moonshot AI is handled the same way as DeepSeek (account balance only)
 - Z.AI is handled the same way (remaining account credit in USD, fetched from `api.z.ai/api/biz/account/query-customer-account-report`)

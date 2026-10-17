@@ -1,6 +1,9 @@
 import { Config } from "./Config";
 import { OTelLogger } from "./OTelContext";
-import { ValidateProviderConfigs } from "./ProviderConfigCheck";
+import {
+  GetIncompleteProviderConfigs,
+  ValidateProviderConfigs,
+} from "./ProviderConfigCheck";
 
 jest.mock("./OTelContext", () => {
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
@@ -123,5 +126,35 @@ describe("ProviderConfigCheck", () => {
     ValidateProviderConfigs(config);
 
     expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  describe("GetIncompleteProviderConfigs", () => {
+    it("returns every enabled provider with missing configuration", () => {
+      const config = new Config();
+      config.COST_ENABLED_GITHUB = true;
+      config.COST_ENABLED_CLOUDFLARE = true;
+      config.COST_ENABLED_JEV = true;
+      process.env.JEV_API_KEY = "sk-or-test";
+
+      expect(GetIncompleteProviderConfigs(config)).toEqual([
+        {
+          label: "Cloudflare",
+          missing: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+        },
+        {
+          label: "GitHub",
+          missing: ["GITHUB_TOKEN", "GITHUB_ACCOUNT"],
+        },
+      ]);
+    });
+
+    it("returns an empty list when no enabled provider is misconfigured", () => {
+      process.env.GITHUB_TOKEN = "test-token";
+      const config = new Config();
+      config.COST_ENABLED_GITHUB = true;
+      config.GITHUB_ACCOUNT = "example-org";
+
+      expect(GetIncompleteProviderConfigs(config)).toEqual([]);
+    });
   });
 });

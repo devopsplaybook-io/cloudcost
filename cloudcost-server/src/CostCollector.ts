@@ -12,6 +12,7 @@ import { DeepSeekGetBalance } from "./cloud/DeepSeekCost";
 import { JevGetBalance } from "./cloud/JevCost";
 import { MoonshotAIGetBalance } from "./cloud/MoonshotAICost";
 import { ZAIGetBalance } from "./cloud/ZAICost";
+import { RecordFetchFailure, RecordFetchSuccess } from "./FetchStatus";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SchedulerCostCollector");
@@ -32,6 +33,7 @@ export async function CostCollectorFetch(): Promise<void> {
         cloud
           .fetcher(span, config)
           .then((amount) => {
+            RecordFetchSuccess(cloud.key, new Date());
             cost[cloud.key] = amount;
             span.addEvent(`${cloud.label} cost: ` + JSON.stringify(amount));
             logger.info(
@@ -43,6 +45,7 @@ export async function CostCollectorFetch(): Promise<void> {
             });
           })
           .catch((err) => {
+            RecordFetchFailure(cloud.key, new Date(), (err as Error).message);
             logger.error(`Error fetching ${cloud.label} cost`, err, span);
             span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
           }),
@@ -59,11 +62,13 @@ export async function CostCollectorFetch(): Promise<void> {
     tasks.push(
       DeepSeekGetBalance(span)
         .then((balances) => {
+          RecordFetchSuccess("deepseek", new Date());
           for (const b of balances) {
             deepseekBalances[b.currency] = b.total_balance;
           }
         })
         .catch((err) => {
+          RecordFetchFailure("deepseek", new Date(), (err as Error).message);
           logger.error("Error fetching DeepSeek balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
@@ -79,11 +84,13 @@ export async function CostCollectorFetch(): Promise<void> {
     tasks.push(
       MoonshotAIGetBalance(span)
         .then((balances) => {
+          RecordFetchSuccess("moonshotai", new Date());
           for (const b of balances) {
             moonshotAIBalances[b.currency] = b.available_balance;
           }
         })
         .catch((err) => {
+          RecordFetchFailure("moonshotai", new Date(), (err as Error).message);
           logger.error("Error fetching Moonshot AI balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
@@ -99,11 +106,13 @@ export async function CostCollectorFetch(): Promise<void> {
     tasks.push(
       ZAIGetBalance(span)
         .then((balances) => {
+          RecordFetchSuccess("zai", new Date());
           for (const b of balances) {
             zaiBalances[b.currency] = b.available_balance;
           }
         })
         .catch((err) => {
+          RecordFetchFailure("zai", new Date(), (err as Error).message);
           logger.error("Error fetching Z.AI balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
@@ -119,11 +128,13 @@ export async function CostCollectorFetch(): Promise<void> {
     tasks.push(
       JevGetBalance(span)
         .then((balances) => {
+          RecordFetchSuccess("jev", new Date());
           for (const b of balances) {
             jevBalances[b.currency] = b.available_balance;
           }
         })
         .catch((err) => {
+          RecordFetchFailure("jev", new Date(), (err as Error).message);
           logger.error("Error fetching Jev balance", err, span);
           span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),

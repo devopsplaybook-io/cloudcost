@@ -7,6 +7,10 @@ import {
 } from "./CloudDefinitions";
 import { Config } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
+import {
+  GetProviderFetchStatus,
+  ResetFetchStatuses,
+} from "./FetchStatus";
 import { AlibabaCloudGetMonthCurrent } from "./cloud/AlibabaCloudCost";
 import { AWSGetMonthCurrent } from "./cloud/AWSCost";
 import { AzureGetMonthCurrent } from "./cloud/AzureCost";
@@ -76,6 +80,7 @@ describe("CostCollector", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    ResetFetchStatuses();
     for (const cloud of CLOUDS) {
       cost[cloud.key] = { total: 0, services: {} };
     }
@@ -134,6 +139,33 @@ describe("CostCollector", () => {
       code: SpanStatusCode.ERROR,
       message: "429 Too Many Requests",
     });
+    expect(GetProviderFetchStatus("aws")).toMatchObject({
+      lastAttemptSuccess: true,
+      consecutiveFailures: 0,
+    });
+    expect(GetProviderFetchStatus("azure")).toMatchObject({
+      lastAttemptSuccess: false,
+      lastError: "429 Too Many Requests",
+      consecutiveFailures: 1,
+    });
+  });
+
+  it("resets the fetch failure count after a successful fetch", async () => {
+    const config = new Config();
+    config.COST_ENABLED_AZURE = true;
+    CostCollectorInit(config);
+    fetchers.azure.mockRejectedValueOnce(new Error("429 Too Many Requests"));
+
+    await CostCollectorFetch();
+    expect(GetProviderFetchStatus("azure")?.consecutiveFailures).toBe(1);
+
+    await CostCollectorFetch();
+
+    expect(GetProviderFetchStatus("azure")).toMatchObject({
+      lastAttemptSuccess: true,
+      consecutiveFailures: 0,
+      lastError: undefined,
+    });
   });
 
   it("should record LLM balances and contain fetch failures", async () => {
@@ -173,6 +205,15 @@ describe("CostCollector", () => {
     expect(span.setStatus).toHaveBeenCalledWith({
       code: SpanStatusCode.ERROR,
       message: "401 Unauthorized",
+    });
+    expect(GetProviderFetchStatus("deepseek")).toMatchObject({
+      lastAttemptSuccess: true,
+      consecutiveFailures: 0,
+    });
+    expect(GetProviderFetchStatus("jev")).toMatchObject({
+      lastAttemptSuccess: false,
+      lastError: "401 Unauthorized",
+      consecutiveFailures: 1,
     });
   });
 
