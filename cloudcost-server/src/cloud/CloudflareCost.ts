@@ -32,10 +32,14 @@ export async function CloudflareGetMonthCurrent(
     const apiToken = process.env.CLOUDFLARE_API_TOKEN || "";
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || "";
 
-    if (!apiToken || !accountId) {
+    const missing = [
+      !apiToken && "CLOUDFLARE_API_TOKEN",
+      !accountId && "CLOUDFLARE_ACCOUNT_ID",
+    ].filter(Boolean);
+    if (missing.length > 0) {
       span.end();
       throw new Error(
-        "Missing Cloudflare configuration: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID",
+        `Missing Cloudflare configuration: ${missing.join(", ")}`,
       );
     }
 

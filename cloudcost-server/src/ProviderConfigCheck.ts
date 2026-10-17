@@ -80,16 +80,31 @@ const PROVIDER_CHECKS: {
   },
 ];
 
+export interface IncompleteProviderConfig {
+  label: string;
+  missing: string[];
+}
+
+/**
+ * Evaluate the provider configuration rules and return every enabled provider
+ * that is missing required configuration (AWS is not checked: it relies on the
+ * SDK default credential chain).
+ */
+export function GetIncompleteProviderConfigs(
+  config: Config,
+): IncompleteProviderConfig[] {
+  return PROVIDER_CHECKS.filter((check) => config[check.configFlag])
+    .map((check) => ({ label: check.label, missing: check.missing(config) }))
+    .filter(({ missing }) => missing.length > 0);
+}
+
 /**
  * Log a consolidated report of enabled providers with missing credentials at
  * startup so a misconfiguration is visible immediately instead of being
  * discovered one failed fetch at a time.
- * AWS is not checked: it relies on the SDK default credential chain.
  */
 export function ValidateProviderConfigs(config: Config): void {
-  const incomplete = PROVIDER_CHECKS.filter((check) => config[check.configFlag])
-    .map((check) => ({ label: check.label, missing: check.missing(config) }))
-    .filter(({ missing }) => missing.length > 0);
+  const incomplete = GetIncompleteProviderConfigs(config);
 
   if (incomplete.length === 0) {
     logger.info("All enabled providers have their required configuration");

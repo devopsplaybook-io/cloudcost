@@ -34,10 +34,12 @@ export async function GitHubGetMonthCurrent(
       config?.GITHUB_ACCOUNT_TYPE ||
       "organization";
 
-    if (!token || !account) {
-      throw new Error(
-        "Missing GitHub configuration: GITHUB_TOKEN, GITHUB_ACCOUNT",
-      );
+    const missing = [
+      !token && "GITHUB_TOKEN",
+      !account && "GITHUB_ACCOUNT",
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      throw new Error(`Missing GitHub configuration: ${missing.join(", ")}`);
     }
     if (accountType !== "organization" && accountType !== "user") {
       throw new Error(

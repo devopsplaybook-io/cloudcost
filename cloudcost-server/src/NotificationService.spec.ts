@@ -9,7 +9,13 @@ import {
 } from "./CloudDefinitions";
 import { Config } from "./Config";
 import {
+  RecordFetchFailure,
+  RecordFetchSuccess,
+  ResetFetchStatuses,
+} from "./FetchStatus";
+import {
   NotificationCheckBudget,
+  NotificationCheckFetchFailures,
   NotificationCheckLLMBalances,
   NotificationCheckThreshold,
   NotificationInit,
@@ -59,6 +65,7 @@ describe("NotificationService", () => {
     moonshotAIBalances.USD = 0;
     zaiBalances.USD = 0;
     jevBalances.USD = 0;
+    ResetFetchStatuses();
     NotificationResetThreshold();
     NotificationResetLLMBalances();
     NotificationResetBudget();
@@ -83,6 +90,9 @@ describe("NotificationService", () => {
       deepseekBalances.USD = 5.68;
       deepseekBalances.CNY = 3.21;
       zaiBalances.USD = 1.5;
+      for (const provider of ["aws", "azure", "github", "deepseek", "zai"]) {
+        RecordFetchSuccess(provider, new Date());
+      }
 
       const config = new Config();
       config.COST_ENABLED_AWS = true;
@@ -97,14 +107,20 @@ describe("NotificationService", () => {
 
       expect(client.info).toHaveBeenCalledTimes(1);
       expect(client.info).toHaveBeenCalledWith(
-        "Cloud cost monthly summary",
+        "Cloud cost summary — October 2026",
         expect.any(String),
         "cloudcost",
       );
       const body = client.info.mock.calls[0][1] as string;
-      expect(body).toContain("| AWS | $12.34 |");
-      expect(body).toContain("| Azure | $5.00 |");
-      expect(body).toContain("| GitHub | $6.78 |");
+      expect(body).toContain(
+        "| AWS | $12.34 — data as of 2026-10-15 12:00 UTC |",
+      );
+      expect(body).toContain(
+        "| Azure | $5.00 — data as of 2026-10-15 12:00 UTC |",
+      );
+      expect(body).toContain(
+        "| GitHub | $6.78 — data as of 2026-10-15 12:00 UTC |",
+      );
       expect(body).toContain("| **Total** | **$24.12** |");
       expect(body).toContain("| Amazon Elastic Compute Cloud | $10.00 |");
       expect(body).toContain("| Amazon S3 | $2.34 |");
@@ -127,6 +143,101 @@ describe("NotificationService", () => {
       );
     });
 
+    it("should list enabled providers with missing configuration at the top of the summary", async () => {
+      const client = givenNotificationsClient(true);
+      RecordFetchSuccess("aws", new Date());
+      cost.aws = { total: 12.34, services: {} };
+
+      const config = new Config();
+      config.COST_ENABLED_AWS = true;
+      config.COST_ENABLED_AZURE = true;
+      NotificationInit(config);
+      delete process.env.AZURE_TENANT_ID;
+      delete process.env.AZURE_CLIENT_ID;
+      delete process.env.AZURE_CLIENT_SECRET;
+      delete process.env.AZURE_SUBSCRIPTION_ID;
+      delete process.env.AZURE_COST_SCOPE;
+
+      try {
+        await NotificationSendSummary();
+
+        const body = client.info.mock.calls[0][1] as string;
+        expect(body).toContain("## Configuration issues");
+        expect(body).toContain(
+          "- Azure is enabled but missing configuration: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID or AZURE_COST_SCOPE",
+        );
+        expect(body.indexOf("## Configuration issues")).toBeLessThan(
+          body.indexOf("## Month-to-date cloud costs"),
+        );
+        // AWS is not part of the configuration rules (SDK default chain)
+        expect(body).not.toContain("- AWS is enabled");
+      } finally {
+        delete process.env.AZURE_TENANT_ID;
+        delete process.env.AZURE_CLIENT_ID;
+        delete process.env.AZURE_CLIENT_SECRET;
+        delete process.env.AZURE_SUBSCRIPTION_ID;
+        delete process.env.AZURE_COST_SCOPE;
+      }
+    });
+
+    it("should mark stale and failed providers in the cost table", async () => {
+      const client = givenNotificationsClient(true);
+      const config = new Config();
+      config.COST_ENABLED_AWS = true;
+      config.COST_ENABLED_AZURE = true;
+      config.COST_ENABLED_CLOUDFLARE = true;
+      NotificationInit(config);
+      cost.aws = { total: 12.34, services: {} };
+      cost.azure = { total: 5, services: {} };
+
+      // Azure succeeded, then failed, then aged past the staleness threshold
+      RecordFetchSuccess(
+        "azure",
+        new Date("2026-10-15T11:00:00Z"),
+      );
+      RecordFetchFailure(
+        "azure",
+        new Date("2026-10-15T11:00:00Z"),
+        "429 Too Many Requests",
+      );
+      jest.setSystemTime(new Date("2026-10-16T11:00:01Z"));
+      RecordFetchSuccess("aws", new Date());
+
+      await NotificationSendSummary();
+
+      const body = client.info.mock.calls[0][1] as string;
+      expect(body).toContain(
+        "| AWS | $12.34 — data as of 2026-10-16 11:00 UTC |",
+      );
+      expect(body).toContain(
+        "| Azure | $5.00 — data as of 2026-10-15 11:00 UTC (last fetch failed, stale) |",
+      );
+      expect(body).toContain("| Cloudflare | $0.00 — no successful fetch yet |");
+    });
+
+    it("should mark LLM providers whose last fetch failed or never succeeded", async () => {
+      const client = givenNotificationsClient(true);
+      RecordFetchSuccess("deepseek", new Date());
+      RecordFetchFailure("zai", new Date(), "timeout");
+      deepseekBalances.USD = 5.68;
+      zaiBalances.USD = 0;
+      jevBalances.USD = 2;
+
+      const config = new Config();
+      config.COST_ENABLED_DEEPSEEK = true;
+      config.COST_ENABLED_ZAI = true;
+      config.COST_ENABLED_JEV = true;
+      NotificationInit(config);
+
+      await NotificationSendSummary();
+
+      const body = client.info.mock.calls[0][1] as string;
+      expect(body).toContain("| deepseek | - | 5.68 |");
+      expect(body).toContain("| zai (last fetch failed) | - | - |");
+      expect(body).toContain("| jev (no successful fetch yet) | - | 2.00 |");
+      expect(body).toContain("| **Total** | - | **7.68** |");
+    });
+
     it("should only include enabled providers", async () => {
       const client = givenNotificationsClient(true);
       cost.aws = { total: 12.34, services: { "Amazon S3": 12.34 } };
@@ -138,7 +249,7 @@ describe("NotificationService", () => {
       await NotificationSendSummary();
 
       const body = client.info.mock.calls[0][1] as string;
-      expect(body).toContain("| AWS | $12.34 |");
+      expect(body).toContain("| AWS | $12.34 — no successful fetch yet |");
       expect(body).not.toContain("Azure");
       expect(body).not.toContain("deepseek");
       expect(body).toContain("| **Total** | **$12.34** |");
@@ -147,6 +258,7 @@ describe("NotificationService", () => {
       expect(body).not.toContain("| Monthly budget |");
       expect(body).not.toContain("| Budget usage |");
       expect(body).not.toContain("| Projected vs budget |");
+      expect(body).not.toContain("## Configuration issues");
     });
 
     it("should not send when the notifications integration is disabled", async () => {
@@ -482,6 +594,131 @@ describe("NotificationService", () => {
         expect.stringContaining("| zai |"),
         "cloudcost",
       );
+    });
+  });
+
+  describe("NotificationCheckFetchFailures", () => {
+    function givenEnabledConfig(): Config {
+      const config = new Config();
+      config.COST_ENABLED_AZURE = true;
+      config.COST_ENABLED_JEV = true;
+      NotificationInit(config);
+      return config;
+    }
+
+    it("should not notify when the notifications integration is disabled", async () => {
+      const client = givenNotificationsClient(false);
+      givenEnabledConfig();
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom");
+        RecordFetchFailure("jev", new Date(), "boom");
+      }
+
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should not notify when the failure threshold is disabled (0)", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig().COST_FETCH_FAILURE_ALERT_THRESHOLD = 0;
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom");
+      }
+
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should not notify below the failure threshold", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      RecordFetchFailure("azure", new Date(), "boom");
+      RecordFetchFailure("azure", new Date(), "boom");
+
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).not.toHaveBeenCalled();
+    });
+
+    it("should notify once per provider kind when the failure streak reaches the threshold", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      RecordFetchSuccess("azure", new Date("2026-10-14T12:00:00Z"));
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "429 Too Many Requests");
+        RecordFetchFailure("jev", new Date(), "timeout");
+      }
+
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenCalledWith(
+        "Cloud cost fetch failing: Azure",
+        "Azure cost fetch has failed 3 consecutive times. Last error: 429 Too Many Requests. Last successful fetch: 2026-10-14 12:00 UTC.",
+        "cloudcost",
+      );
+      expect(client.warning).toHaveBeenCalledWith(
+        "LLM credit fetch failing: jev",
+        "jev credit fetch has failed 3 consecutive times. Last error: timeout. Last successful fetch: never.",
+        "cloudcost",
+      );
+    });
+
+    it("should not repeat the notification while the streak keeps growing", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom");
+      }
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      RecordFetchFailure("azure", new Date(), "boom");
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).toHaveBeenCalledTimes(1);
+    });
+
+    it("should re-arm the notification after a successful fetch", async () => {
+      const client = givenNotificationsClient(true);
+      givenEnabledConfig();
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom");
+      }
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      RecordFetchSuccess("azure", new Date());
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom again");
+      }
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenLastCalledWith(
+        "Cloud cost fetch failing: Azure",
+        expect.stringContaining("Last error: boom again"),
+        "cloudcost",
+      );
+    });
+
+    it("should not evaluate a provider that is disabled", async () => {
+      const client = givenNotificationsClient(true);
+      const config = new Config();
+      config.COST_ENABLED_AZURE = true;
+      NotificationInit(config);
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("jev", new Date(), "boom");
+      }
+
+      await NotificationCheckFetchFailures();
+
+      expect(client.warning).not.toHaveBeenCalled();
     });
   });
 

@@ -20,10 +20,15 @@ export async function GoogleCloudGetMonthCurrent(
     const billingDataset = process.env.GOOGLECLOUD_BILLING_DATASET || "";
     const billingTable = process.env.GOOGLECLOUD_BILLING_TABLE || "";
 
-    if (!billingProjectId || !billingDataset || !billingTable) {
+    const missing = [
+      !billingProjectId && "GOOGLECLOUD_BILLING_PROJECT_ID",
+      !billingDataset && "GOOGLECLOUD_BILLING_DATASET",
+      !billingTable && "GOOGLECLOUD_BILLING_TABLE",
+    ].filter(Boolean);
+    if (missing.length > 0) {
       span.end();
       throw new Error(
-        "Missing Google Cloud billing configuration: GOOGLECLOUD_BILLING_PROJECT_ID, GOOGLECLOUD_BILLING_DATASET, GOOGLECLOUD_BILLING_TABLE",
+        `Missing Google Cloud billing configuration: ${missing.join(", ")}`,
       );
     }
 

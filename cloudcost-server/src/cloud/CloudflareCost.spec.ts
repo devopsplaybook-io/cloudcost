@@ -38,6 +38,24 @@ describe("CloudflareCost", () => {
     expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
+  it("should name only the missing API token", async () => {
+    process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";
+
+    await expect(CloudflareGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Missing Cloudflare configuration: CLOUDFLARE_API_TOKEN",
+    );
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it("should name only the missing account id", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "test-token";
+
+    await expect(CloudflareGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Missing Cloudflare configuration: CLOUDFLARE_ACCOUNT_ID",
+    );
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
   it("should aggregate account subscriptions and paginated zone plans", async () => {
     process.env.CLOUDFLARE_API_TOKEN = "test-token";
     process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";

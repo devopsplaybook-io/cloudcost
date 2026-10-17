@@ -37,6 +37,24 @@ describe("GitHubCost", () => {
     expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
+  it("names only the missing token when the account is configured", async () => {
+    process.env.GITHUB_ACCOUNT = "example-org";
+
+    await expect(GitHubGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Missing GitHub configuration: GITHUB_TOKEN",
+    );
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it("names only the missing account when the token is configured", async () => {
+    process.env.GITHUB_TOKEN = "test-token";
+
+    await expect(GitHubGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Missing GitHub configuration: GITHUB_ACCOUNT",
+    );
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
   it("aggregates current-month usage by product and SKU", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-09-29T00:00:00Z"));
     process.env.GITHUB_TOKEN = "test-token";
