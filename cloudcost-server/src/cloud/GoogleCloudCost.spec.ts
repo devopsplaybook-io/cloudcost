@@ -103,4 +103,29 @@ describe("GoogleCloudCost", () => {
       "Access Denied",
     );
   });
+
+  it("should query the current UTC invoice month even when the host timezone is ahead of UTC", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Asia/Shanghai";
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-10-31T16:30:00Z"));
+    try {
+      queryMock.mockResolvedValueOnce([[]]);
+
+      await GoogleCloudGetMonthCurrent(fakeSpan);
+
+      expect(queryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { invoiceMonth: "202610" },
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
 });

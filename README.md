@@ -111,6 +111,8 @@ spec:
 
 Configuration values can be set via environment variables or through the `config.json` file. Environment variables take precedence over config file values, which take precedence over defaults.
 
+The configuration file is watched and reloaded when it changes. Boolean values must be `true` or `false` (case-insensitive); numeric values must be finite. An invalid value is logged and the current value is kept instead of silently falling back to a default. Changes to the notification thresholds/budget re-establish the alert baselines on the next check (no notification is sent for the change itself). Cron schedules (`COST_FETCH_CRON`, `COST_NOTIFICATION_SUMMARY_SCHEDULE`) and the set of registered per-provider metrics are only applied at startup: restart the service to apply changes to them.
+
 ## General
 
 | Variable          | Description                                  | Default                    |
@@ -120,6 +122,15 @@ Configuration values can be set via environment variables or through the `config
 ## Cloud Providers
 
 Each cloud provider is independently enabled. When disabled, no credentials are required and no metrics are emitted for that provider.
+
+All cost figures are month-to-date and expressed in USD, using the current UTC calendar month (from 00:00 on day 1 UTC, regardless of the host timezone). The per-provider cost basis is:
+
+- **AWS** — `UnblendedCost` from Cost Explorer, aggregated over all result pages.
+- **Azure** — `ActualCost` (`PreTaxCost`) from Cost Management.
+- **Google Cloud** — cost plus credits (net cost) from the BigQuery billing export, filtered on the current `invoice.month`.
+- **Alibaba Cloud** — pretax amount from the BSS account bill for the current billing cycle, aggregated over all pages.
+- **Cloudflare** — **list-price run-rate, not metered usage**: the sum of the active account subscription prices plus each zone's plan price. It represents the recurring monthly plan fees and does not include usage-based charges (e.g. Workers requests, R2 storage) or annual-plan discounts. Zone plans are counted in full even when a zone was added mid-month.
+- **GitHub** — month-to-date usage from the billing usage report, grouped by product and SKU. Usage billed to an enterprise is not included.
 
 | Variable                    | Description                        | Default |
 | --------------------------- | ---------------------------------- | ------- |
@@ -232,7 +243,7 @@ CloudCost also watches the remaining credit of each enabled LLM provider (DeepSe
 
 When an enabled provider's fetch keeps failing, CloudCost sends a `warning` notification once the provider has failed `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive fetches (default `3`, `0` disables). The notification is transition-only: it fires when the failure streak first reaches the threshold, stays silent while the streak keeps growing, and is re-armed by a successful fetch (or a restart, which resets the in-memory fetch status). The body states the consecutive failure count, the last error message and the time of the last successful fetch (or `never`).
 
-Optionally, CloudCost can also send a regular Markdown summary of all cost metrics for the month (titled `Cloud cost summary — <Month> <Year>`): per-provider month-to-date totals with a grand total, a month-end projection (daily average and projected month-end, plus the monthly budget usage and projected-vs-budget comparison when a budget is configured), the per-service breakdown for each provider, and the remaining LLM account credits. To make the data trustworthy at a glance, each provider row states how fresh its numbers are (`$X.XX — data as of YYYY-MM-DD HH:mm UTC`, or `no successful fetch yet`) and is annotated with `(last fetch failed)` and/or `(stale)` when the last fetch attempt failed or the data is older than 24 hours; LLM provider rows carry the same failure annotations; and a `Configuration issues` section at the top lists every enabled provider that is missing required configuration (evaluated with the same rules as the startup report). The summary is sent with `info` severity at the configured cron schedule (evaluated in UTC) and always reports the latest known metrics. When the variable is unset or empty, no summary is sent.
+Optionally, CloudCost can also send a regular Markdown summary of all cost metrics for the month (titled `Cloud cost summary — <Month> <Year>`): per-provider month-to-date totals with a grand total, a month-end projection (daily average and projected month-end, plus the monthly budget usage and projected-vs-budget comparison when a budget is configured), the per-service breakdown for each provider, and the remaining LLM account credits. To make the data trustworthy at a glance, each provider row states how fresh its numbers are (`$X.XX — data as of YYYY-MM-DD HH:mm UTC`, or `no successful fetch yet`) and is annotated with `(last fetch failed)` and/or `(stale)` when the last fetch attempt failed or the data is older than 24 hours; LLM provider rows carry the same failure annotations; and a `Configuration issues` section at the top lists every enabled provider that is missing required configuration or has invalid configuration (evaluated with the same rules as the startup report). The summary is sent with `info` severity at the configured cron schedule (evaluated in UTC) and always reports the latest known metrics. When the variable is unset or empty, no summary is sent.
 
 | Variable                      | Description                                                         | Default |
 | ----------------------------- | ------------------------------------------------------------------- | ------- |
@@ -278,7 +289,7 @@ OPENTELEMETRY_COLLECTOR_HTTP_LOGS=http://otel-light:8080/v1/logs
 | `ai.balance.cny`                   | Remaining LLM account credit in CNY, one data point per LLM provider plus `total`                        | `provider`         |
 | `ai.balance.token`                 | Remaining raw AI tokens by provider plus `total`, when a provider exposes a verified remaining-token balance | `provider`         |
 
-The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per LLM provider that currently has credit in that currency, plus a `total` data point summing them. A currency with no provider credit emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, `jev`, and `total`.
+The consolidated LLM credit metrics are reported per currency. Each gauge carries one data point per enabled LLM provider whose balance in that currency is known, plus a `total` data point summing them. A zero balance is reported as `0` so a depleted account stays visible; before the first successful fetch (and after a failed fetch, where the last known balance is kept) the balance is reported from the latest known data. A currency where no provider reports a value emits no data point at all. The `provider` label takes the values `deepseek`, `moonshotai`, `zai`, `jev`, and `total`.
 
 The `cloud` label takes the values `aws`, `azure`, `alibabacloud`, `googlecloud`, `cloudflare`, `github`, and `total` (for the combined total across all enabled cost providers).
 

@@ -4,6 +4,8 @@ import {
   cost,
   deepseekBalances,
   jevBalances,
+  moonshotAIBalances,
+  zaiBalances,
 } from "./CloudDefinitions";
 import { Config } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
@@ -84,6 +86,11 @@ describe("CostCollector", () => {
     for (const cloud of CLOUDS) {
       cost[cloud.key] = { total: 0, services: {} };
     }
+    deepseekBalances.CNY = undefined;
+    deepseekBalances.USD = undefined;
+    moonshotAIBalances.USD = undefined;
+    zaiBalances.USD = undefined;
+    jevBalances.USD = undefined;
     for (const fetcher of Object.values(fetchers)) {
       fetcher.mockResolvedValue({ total: 0, services: {} });
     }
@@ -215,6 +222,48 @@ describe("CostCollector", () => {
       lastError: "401 Unauthorized",
       consecutiveFailures: 1,
     });
+  });
+
+  it("should clear known currencies that a successful fetch no longer reports", async () => {
+    const config = new Config();
+    config.COST_ENABLED_DEEPSEEK = true;
+    CostCollectorInit(config);
+    deepseekBalances.CNY = 3;
+    deepseekBalances.USD = 5;
+    llmFetchers.deepseek.mockResolvedValue([
+      { currency: "USD", total_balance: 4 },
+    ]);
+
+    await CostCollectorFetch();
+
+    expect(deepseekBalances.USD).toBe(4);
+    expect(deepseekBalances.CNY).toBeUndefined();
+  });
+
+  it("should clear a stale balance when a successful fetch returns no value", async () => {
+    const config = new Config();
+    config.COST_ENABLED_ZAI = true;
+    CostCollectorInit(config);
+    zaiBalances.USD = 9.5;
+    llmFetchers.zai.mockResolvedValue([]);
+
+    await CostCollectorFetch();
+
+    expect(zaiBalances.USD).toBeUndefined();
+    expect(GetProviderFetchStatus("zai")?.lastAttemptSuccess).toBe(true);
+  });
+
+  it("should keep the last known balance when the fetch fails", async () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    CostCollectorInit(config);
+    jevBalances.USD = 4.25;
+    llmFetchers.jev.mockRejectedValue(new Error("timeout"));
+
+    await CostCollectorFetch();
+
+    expect(jevBalances.USD).toBe(4.25);
+    expect(GetProviderFetchStatus("jev")?.lastAttemptSuccess).toBe(false);
   });
 
   it("should not call disabled providers", async () => {

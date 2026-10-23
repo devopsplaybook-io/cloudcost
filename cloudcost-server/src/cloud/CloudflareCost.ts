@@ -1,14 +1,31 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
+import { WithRetry } from "../Retry";
 import {
   COST_HTTP_TIMEOUT_MS,
   CostBreakdownInterface,
 } from "./CostBreakdownInterface";
 
+const logger = OTelLogger().createModuleLogger("CloudflareCost");
+
 const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
 const ZONES_PER_PAGE = 50;
 const ZONES_MAX_PAGES = 100;
+
+async function getWithRetry(
+  url: string,
+  options: Parameters<typeof axios.get>[1],
+  span: Span,
+) {
+  return WithRetry(() => axios.get(url, options), {
+    onRetry: (err, attempt, delayMs) =>
+      logger.warn(
+        `Cloudflare request to ${url} failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+        span,
+      ),
+  });
+}
 
 interface Subscription {
   price?: number;
@@ -51,9 +68,10 @@ export async function CloudflareGetMonthCurrent(
     const services: Record<string, number> = {};
 
     // Account-level subscriptions (Workers, R2, Stream, etc.)
-    const subResponse = await axios.get(
+    const subResponse = await getWithRetry(
       `${CLOUDFLARE_API_BASE}/accounts/${accountId}/subscriptions`,
       { headers, timeout: COST_HTTP_TIMEOUT_MS },
+      span,
     );
     const accountSubs: Subscription[] = subResponse.data?.result ?? [];
     for (const sub of accountSubs) {
@@ -71,15 +89,19 @@ export async function CloudflareGetMonthCurrent(
     let page = 1;
     let totalPages = 1;
     while (page <= totalPages) {
-      const zonesResponse = await axios.get(`${CLOUDFLARE_API_BASE}/zones`, {
-        headers,
-        timeout: COST_HTTP_TIMEOUT_MS,
-        params: {
-          "account.id": accountId,
-          per_page: ZONES_PER_PAGE,
-          page,
+      const zonesResponse = await getWithRetry(
+        `${CLOUDFLARE_API_BASE}/zones`,
+        {
+          headers,
+          timeout: COST_HTTP_TIMEOUT_MS,
+          params: {
+            "account.id": accountId,
+            per_page: ZONES_PER_PAGE,
+            page,
+          },
         },
-      });
+        span,
+      );
       const zones: Zone[] = zonesResponse.data?.result ?? [];
       for (const zone of zones) {
         const planName = zone.plan?.name;

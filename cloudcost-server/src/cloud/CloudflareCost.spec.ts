@@ -150,4 +150,30 @@ describe("CloudflareCost", () => {
       "500 Server Error",
     );
   });
+
+  it("should retry a transient API error", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "test-token";
+    process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";
+    jest.useFakeTimers();
+    jest.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      mockedAxios.get
+        .mockRejectedValueOnce(
+          Object.assign(new Error("rate limited"), {
+            response: { status: 429, headers: {} },
+          }),
+        )
+        .mockResolvedValueOnce({ data: { result: [] } })
+        .mockResolvedValueOnce({ data: { result: [] } });
+
+      const promise = CloudflareGetMonthCurrent(fakeSpan);
+      await jest.advanceTimersByTimeAsync(2000);
+
+      await expect(promise).resolves.toEqual({ total: 0, services: {} });
+      expect(mockedAxios.get).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    }
+  });
 });

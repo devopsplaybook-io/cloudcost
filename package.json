@@ -1,6 +1,6 @@
 {
   "name": "cloudcost",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "",
   "main": "ecosystem.config.js",
   "scripts": {
@@ -9,13 +9,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DidierHoarau/cloudcost.git"
+    "url": "git+https://github.com/devopsplaybook-io/cloudcost.git"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/DidierHoarau/cloudcost/issues"
+    "url": "https://github.com/devopsplaybook-io/cloudcost/issues"
   },
-  "homepage": "https://github.com/DidierHoarau/cloudcost#readme"
+  "homepage": "https://github.com/devopsplaybook-io/cloudcost#readme"
 }

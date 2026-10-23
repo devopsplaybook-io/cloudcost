@@ -1,8 +1,11 @@
 {
   "name": "cloudcost-server",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "author": "",
   "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "//": "-------------------------------------------------------------------",
     "build": "tsc && tsc -p tsconfig.spec.json --noEmit",

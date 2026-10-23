@@ -68,26 +68,29 @@ describe("CloudDefinitions", () => {
   });
 
   describe("deepseekBalances", () => {
-    it("should initialize CNY and USD to 0", () => {
-      expect(deepseekBalances).toEqual({ CNY: 0, USD: 0 });
+    it("should declare CNY and USD as unknown until the first fetch", () => {
+      expect(deepseekBalances).toStrictEqual({
+        CNY: undefined,
+        USD: undefined,
+      });
     });
   });
 
   describe("moonshotAIBalances", () => {
-    it("should initialize USD to 0", () => {
-      expect(moonshotAIBalances).toEqual({ USD: 0 });
+    it("should declare USD as unknown until the first fetch", () => {
+      expect(moonshotAIBalances).toStrictEqual({ USD: undefined });
     });
   });
 
   describe("zaiBalances", () => {
-    it("should initialize USD to 0", () => {
-      expect(zaiBalances).toEqual({ USD: 0 });
+    it("should declare USD as unknown until the first fetch", () => {
+      expect(zaiBalances).toStrictEqual({ USD: undefined });
     });
   });
 
   describe("jevBalances", () => {
-    it("should initialize USD to 0", () => {
-      expect(jevBalances).toEqual({ USD: 0 });
+    it("should declare USD as unknown until the first fetch", () => {
+      expect(jevBalances).toStrictEqual({ USD: undefined });
     });
   });
 });

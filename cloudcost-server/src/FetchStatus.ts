@@ -11,21 +11,32 @@ export interface ProviderFetchStatus {
   lastSuccessAt?: Date;
   lastError?: string;
   consecutiveFailures: number;
+  // Whether the recurring-failure notification was delivered for the current
+  // failure streak. Reset by a successful fetch; only set after a successful
+  // delivery so a failed notification is retried on the next check.
+  failureAlerted: boolean;
 }
 
 const fetchStatuses = new Map<string, ProviderFetchStatus>();
 
+function getOrCreate(provider: string): ProviderFetchStatus {
+  let status = fetchStatuses.get(provider);
+  if (!status) {
+    status = { consecutiveFailures: 0, failureAlerted: false };
+    fetchStatuses.set(provider, status);
+  }
+  return status;
+}
+
 export function RecordFetchSuccess(provider: string, at: Date): void {
-  const status = fetchStatuses.get(provider) ?? {
-    consecutiveFailures: 0,
-  };
+  const status = getOrCreate(provider);
   status.lastAttemptAt = at;
   status.lastAttemptSuccess = true;
   status.lastSuccessAt = at;
   status.lastError = undefined;
   // A success re-arms the recurring-failure alert.
   status.consecutiveFailures = 0;
-  fetchStatuses.set(provider, status);
+  status.failureAlerted = false;
 }
 
 export function RecordFetchFailure(
@@ -33,14 +44,23 @@ export function RecordFetchFailure(
   at: Date,
   error: string,
 ): void {
-  const status = fetchStatuses.get(provider) ?? {
-    consecutiveFailures: 0,
-  };
+  const status = getOrCreate(provider);
   status.lastAttemptAt = at;
   status.lastAttemptSuccess = false;
   status.lastError = error;
   status.consecutiveFailures += 1;
-  fetchStatuses.set(provider, status);
+}
+
+/**
+ * Mark the recurring-failure notification as delivered for the current
+ * failure streak. Subsequent checks stay silent until a successful fetch
+ * re-arms the alert.
+ */
+export function MarkFetchFailureAlerted(provider: string): void {
+  const status = fetchStatuses.get(provider);
+  if (status) {
+    status.failureAlerted = true;
+  }
 }
 
 export function GetProviderFetchStatus(

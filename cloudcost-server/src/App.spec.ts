@@ -1,4 +1,4 @@
-import { Start } from "./Start";
+import { Start, Stop } from "./Start";
 import { OTelLogger } from "./OTelContext";
 
 jest.mock("./OTelContext", () => {
@@ -8,7 +8,7 @@ jest.mock("./OTelContext", () => {
   };
 });
 
-jest.mock("./Start", () => ({ Start: jest.fn() }));
+jest.mock("./Start", () => ({ Start: jest.fn(), Stop: jest.fn() }));
 
 describe("App", () => {
   const mockLogger = OTelLogger().createModuleLogger("test") as unknown as {
@@ -20,6 +20,11 @@ describe("App", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(Start).mockResolvedValue(undefined);
+    jest.mocked(Stop).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   function loadApp(): void {
@@ -27,6 +32,15 @@ describe("App", () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require("./App");
     });
+  }
+
+  function getProcessHandler(
+    spy: jest.SpyInstance,
+    event: string,
+  ): ((...args: unknown[]) => void) | undefined {
+    return spy.mock.calls.find(([name]) => name === event)?.[1] as
+      | ((...args: unknown[]) => void)
+      | undefined;
   }
 
   it("should log the startup banner and start the server", () => {
@@ -56,17 +70,78 @@ describe("App", () => {
       .mockImplementation(() => process);
 
     loadApp();
-    const handler = processOnSpy.mock.calls.find(
-      ([event]) => event === "unhandledRejection",
-    )?.[1] as (reason: unknown) => void;
+    const handler = getProcessHandler(processOnSpy, "unhandledRejection");
     expect(handler).toBeDefined();
 
-    handler("plain string reason");
+    handler?.("plain string reason");
     expect(mockLogger.error).toHaveBeenCalledWith(
       "Unhandled promise rejection",
       expect.any(Error),
     );
 
+    processOnSpy.mockRestore();
+  });
+
+  it("should stop cleanly and exit with code 0 on SIGTERM", async () => {
+    const processOnSpy = jest
+      .spyOn(process, "on")
+      .mockImplementation(() => process);
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    loadApp();
+    const handler = getProcessHandler(processOnSpy, "SIGTERM");
+    expect(handler).toBeDefined();
+    handler?.();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(Stop).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    exitSpy.mockRestore();
+    processOnSpy.mockRestore();
+  });
+
+  it("should exit with code 1 when the shutdown fails", async () => {
+    jest.mocked(Stop).mockRejectedValue(new Error("shutdown boom"));
+    const processOnSpy = jest
+      .spyOn(process, "on")
+      .mockImplementation(() => process);
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    loadApp();
+    getProcessHandler(processOnSpy, "SIGINT")?.();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Error during shutdown",
+      expect.any(Error),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+    processOnSpy.mockRestore();
+  });
+
+  it("should only shut down once when both signals arrive", async () => {
+    const processOnSpy = jest
+      .spyOn(process, "on")
+      .mockImplementation(() => process);
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    loadApp();
+    getProcessHandler(processOnSpy, "SIGTERM")?.();
+    getProcessHandler(processOnSpy, "SIGINT")?.();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(Stop).toHaveBeenCalledTimes(1);
+
+    exitSpy.mockRestore();
     processOnSpy.mockRestore();
   });
 });

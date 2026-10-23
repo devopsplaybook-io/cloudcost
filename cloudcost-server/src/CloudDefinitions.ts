@@ -58,21 +58,24 @@ export const CLOUDS: CloudDefinition[] = [
   },
 ];
 
-export const deepseekBalances: Record<string, number> = {
-  CNY: 0,
-  USD: 0,
+// Known currencies are initialized to `undefined` (not 0) so a gauge is
+// registered for each at startup without reporting a fabricated zero before
+// the first successful fetch. A successful fetch replaces the whole set.
+export const deepseekBalances: Record<string, number | undefined> = {
+  CNY: undefined,
+  USD: undefined,
 };
 
-export const moonshotAIBalances: Record<string, number> = {
-  USD: 0,
+export const moonshotAIBalances: Record<string, number | undefined> = {
+  USD: undefined,
 };
 
-export const zaiBalances: Record<string, number> = {
-  USD: 0,
+export const zaiBalances: Record<string, number | undefined> = {
+  USD: undefined,
 };
 
-export const jevBalances: Record<string, number> = {
-  USD: 0,
+export const jevBalances: Record<string, number | undefined> = {
+  USD: undefined,
 };
 
 export const cost: Record<string, CloudCost> = {

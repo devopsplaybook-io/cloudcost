@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { WithRetry } from "../Retry";
 import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("MoonshotAICost");
@@ -25,14 +26,21 @@ export async function MoonshotAIGetBalance(
       throw new Error("Missing MOONSHOTAI_API_KEY");
     }
 
-    const response = await axios.get(
-      `${MOONSHOTAI_API_BASE}/v1/users/me/balance`,
+    const response = await WithRetry(
+      () =>
+        axios.get(`${MOONSHOTAI_API_BASE}/v1/users/me/balance`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: "application/json",
+          },
+          timeout: COST_HTTP_TIMEOUT_MS,
+        }),
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
-        },
-        timeout: COST_HTTP_TIMEOUT_MS,
+        onRetry: (err, attempt, delayMs) =>
+          logger.warn(
+            `Moonshot AI balance request failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+            span,
+          ),
       },
     );
 

@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { CostManagementClient } from "@azure/arm-costmanagement";
-import { AzureGetMonthCurrent, GetAzureRetryDelayMs } from "./AzureCost";
+import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
+import { AzureGetMonthCurrent } from "./AzureCost";
 
 jest.mock("@azure/arm-costmanagement", () => ({
   CostManagementClient: jest.fn(),
@@ -49,40 +50,6 @@ describe("AzureCost", () => {
     process.env.AZURE_SUBSCRIPTION_ID = "test-subscription";
   });
 
-  describe("GetAzureRetryDelayMs", () => {
-    it("should return null for non-retryable status codes", () => {
-      expect(GetAzureRetryDelayMs(retryableError(400), 1)).toBeNull();
-      expect(GetAzureRetryDelayMs(new Error("network"), 1)).toBeNull();
-    });
-
-    it("should honor x-ms-retry-after-ms when present", () => {
-      const err = retryableError(429, { "x-ms-retry-after-ms": "1500" });
-      expect(GetAzureRetryDelayMs(err, 1)).toBe(1500);
-    });
-
-    it("should honor Retry-After in seconds when present", () => {
-      const err = retryableError(429, { "retry-after": "3" });
-      expect(GetAzureRetryDelayMs(err, 1)).toBe(3000);
-    });
-
-    it("should cap the server-provided delay at 120 s", () => {
-      const err = retryableError(429, { "retry-after": "600" });
-      expect(GetAzureRetryDelayMs(err, 1)).toBe(120000);
-    });
-
-    it("should apply an exponential backoff with jitter otherwise", () => {
-      const attempt1 = GetAzureRetryDelayMs(retryableError(503), 1);
-      const attempt2 = GetAzureRetryDelayMs(retryableError(503), 2);
-      const attempt3 = GetAzureRetryDelayMs(retryableError(503), 3);
-      expect(attempt1).toBeGreaterThanOrEqual(2000);
-      expect(attempt1).toBeLessThan(4000);
-      expect(attempt2).toBeGreaterThanOrEqual(4000);
-      expect(attempt2).toBeLessThan(8000);
-      expect(attempt3).toBeGreaterThanOrEqual(8000);
-      expect(attempt3).toBeLessThan(16000);
-    });
-  });
-
   describe("AzureGetMonthCurrent", () => {
     const usageMock = jest.fn();
 
@@ -107,6 +74,20 @@ describe("AzureCost", () => {
         total: 6.75,
         services: { "Virtual Machines": 3.75, Storage: 3 },
       });
+    });
+
+    it("should set an HTTP request timeout on the cost query", async () => {
+      usageMock.mockResolvedValueOnce({ rows: [] });
+
+      await AzureGetMonthCurrent(fakeSpan);
+
+      expect(usageMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.objectContaining({
+          requestOptions: { timeout: COST_HTTP_TIMEOUT_MS },
+        }),
+      );
     });
 
     it("should tolerate an empty result", async () => {
@@ -163,6 +144,35 @@ describe("AzureCost", () => {
 
       await expect(AzureGetMonthCurrent(fakeSpan)).rejects.toThrow("HTTP 400");
       expect(usageMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("should query the current UTC month even when the host timezone is ahead of UTC", async () => {
+      const previousTz = process.env.TZ;
+      process.env.TZ = "Asia/Shanghai";
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-10-31T16:30:00Z"));
+      try {
+        usageMock.mockResolvedValueOnce({ rows: [] });
+
+        await AzureGetMonthCurrent(fakeSpan);
+
+        const parameters = usageMock.mock.calls[0][1] as {
+          timePeriod: { from: Date; to: Date };
+        };
+        expect(parameters.timePeriod.from.toISOString()).toBe(
+          "2026-10-01T00:00:00.000Z",
+        );
+        expect(parameters.timePeriod.to.toISOString()).toBe(
+          "2026-11-01T00:00:00.000Z",
+        );
+      } finally {
+        jest.useRealTimers();
+        if (previousTz === undefined) {
+          delete process.env.TZ;
+        } else {
+          process.env.TZ = previousTz;
+        }
+      }
     });
   });
 });
