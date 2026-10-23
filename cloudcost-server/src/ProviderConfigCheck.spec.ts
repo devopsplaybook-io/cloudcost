@@ -1,7 +1,7 @@
 import { Config } from "./Config";
 import { OTelLogger } from "./OTelContext";
 import {
-  GetIncompleteProviderConfigs,
+  GetProviderConfigIssues,
   ValidateProviderConfigs,
 } from "./ProviderConfigCheck";
 
@@ -36,6 +36,7 @@ describe("ProviderConfigCheck", () => {
       "CLOUDFLARE_ACCOUNT_ID",
       "GITHUB_TOKEN",
       "GITHUB_ACCOUNT",
+      "GITHUB_ACCOUNT_TYPE",
       "DEEPSEEK_API_KEY",
       "MOONSHOTAI_API_KEY",
       "ZAI_API_KEY",
@@ -119,7 +120,7 @@ describe("ProviderConfigCheck", () => {
   });
 
   it("does not warn about Jev when its API key is set", () => {
-    process.env.JEV_API_KEY = "sk-or-test";
+    process.env.JEV_API_KEY = "sk-or-v1-test";
     const config = new Config();
     config.COST_ENABLED_JEV = true;
 
@@ -128,33 +129,92 @@ describe("ProviderConfigCheck", () => {
     expect(mockLogger.warn).not.toHaveBeenCalled();
   });
 
-  describe("GetIncompleteProviderConfigs", () => {
+  it("warns about an invalid GitHub account type without hiding a missing token", () => {
+    process.env.GITHUB_ACCOUNT_TYPE = "enterprise";
+    const config = new Config();
+    config.COST_ENABLED_GITHUB = true;
+    config.GITHUB_ACCOUNT = "example-org";
+
+    ValidateProviderConfigs(config);
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "Provider GitHub is enabled but missing configuration: GITHUB_TOKEN",
+    );
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "Provider GitHub is enabled but has invalid configuration: GITHUB_ACCOUNT_TYPE must be one of organization, user (got 'enterprise')",
+    );
+  });
+
+  it("warns about a Jev key that is not an OpenRouter key", () => {
+    process.env.JEV_API_KEY = "apikey_123";
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+
+    ValidateProviderConfigs(config);
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "Provider Jev is enabled but has invalid configuration: JEV_API_KEY must be an OpenRouter key (sk-or-v1-...) to read a remaining credit",
+    );
+  });
+
+  describe("GetProviderConfigIssues", () => {
     it("returns every enabled provider with missing configuration", () => {
       const config = new Config();
       config.COST_ENABLED_GITHUB = true;
       config.COST_ENABLED_CLOUDFLARE = true;
       config.COST_ENABLED_JEV = true;
-      process.env.JEV_API_KEY = "sk-or-test";
+      process.env.JEV_API_KEY = "sk-or-v1-test";
 
-      expect(GetIncompleteProviderConfigs(config)).toEqual([
+      expect(GetProviderConfigIssues(config)).toEqual([
         {
           label: "Cloudflare",
           missing: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+          invalid: [],
         },
         {
           label: "GitHub",
           missing: ["GITHUB_TOKEN", "GITHUB_ACCOUNT"],
+          invalid: [],
+        },
+      ]);
+    });
+
+    it("returns invalid entries for a bad GitHub account type and Jev key", () => {
+      process.env.GITHUB_TOKEN = "test-token";
+      process.env.GITHUB_ACCOUNT_TYPE = "team";
+      process.env.JEV_API_KEY = "apikey_123";
+      const config = new Config();
+      config.COST_ENABLED_GITHUB = true;
+      config.GITHUB_ACCOUNT = "example-org";
+      config.COST_ENABLED_JEV = true;
+
+      expect(GetProviderConfigIssues(config)).toEqual([
+        {
+          label: "GitHub",
+          missing: [],
+          invalid: [
+            "GITHUB_ACCOUNT_TYPE must be one of organization, user (got 'team')",
+          ],
+        },
+        {
+          label: "Jev",
+          missing: [],
+          invalid: [
+            "JEV_API_KEY must be an OpenRouter key (sk-or-v1-...) to read a remaining credit",
+          ],
         },
       ]);
     });
 
     it("returns an empty list when no enabled provider is misconfigured", () => {
       process.env.GITHUB_TOKEN = "test-token";
+      process.env.JEV_API_KEY = "sk-or-v1-test";
       const config = new Config();
       config.COST_ENABLED_GITHUB = true;
       config.GITHUB_ACCOUNT = "example-org";
+      config.COST_ENABLED_JEV = true;
 
-      expect(GetIncompleteProviderConfigs(config)).toEqual([]);
+      expect(GetProviderConfigIssues(config)).toEqual([]);
     });
   });
 });

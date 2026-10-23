@@ -3,6 +3,9 @@ import { OTelLogger } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("provider-config");
 
+const GITHUB_ACCOUNT_TYPES = ["organization", "user"];
+const OPENROUTER_KEY_PREFIX = "sk-or-v1-";
+
 function missingEnvKeys(keys: string[]): string[] {
   return keys.filter((key) => !process.env[key]);
 }
@@ -11,6 +14,7 @@ const PROVIDER_CHECKS: {
   label: string;
   configFlag: keyof Config;
   missing: (config: Config) => string[];
+  invalid?: (config: Config) => string[];
 }[] = [
   {
     label: "Azure",
@@ -57,6 +61,18 @@ const PROVIDER_CHECKS: {
           ? []
           : ["GITHUB_ACCOUNT"],
       ),
+    invalid: (config) => {
+      const accountType =
+        process.env.GITHUB_ACCOUNT_TYPE ||
+        config.GITHUB_ACCOUNT_TYPE ||
+        "organization";
+      if (GITHUB_ACCOUNT_TYPES.includes(accountType)) {
+        return [];
+      }
+      return [
+        `GITHUB_ACCOUNT_TYPE must be one of ${GITHUB_ACCOUNT_TYPES.join(", ")} (got '${accountType}')`,
+      ];
+    },
   },
   {
     label: "DeepSeek",
@@ -77,42 +93,63 @@ const PROVIDER_CHECKS: {
     label: "Jev",
     configFlag: "COST_ENABLED_JEV",
     missing: () => missingEnvKeys(["JEV_API_KEY"]),
+    invalid: () => {
+      const apiKey = process.env.JEV_API_KEY;
+      if (!apiKey || apiKey.startsWith(OPENROUTER_KEY_PREFIX)) {
+        return [];
+      }
+      return [
+        `JEV_API_KEY must be an OpenRouter key (${OPENROUTER_KEY_PREFIX}...) to read a remaining credit`,
+      ];
+    },
   },
 ];
 
-export interface IncompleteProviderConfig {
+export interface ProviderConfigIssue {
   label: string;
   missing: string[];
+  invalid: string[];
 }
 
 /**
  * Evaluate the provider configuration rules and return every enabled provider
- * that is missing required configuration (AWS is not checked: it relies on the
+ * with missing or invalid configuration (AWS is not checked: it relies on the
  * SDK default credential chain).
  */
-export function GetIncompleteProviderConfigs(
-  config: Config,
-): IncompleteProviderConfig[] {
+export function GetProviderConfigIssues(config: Config): ProviderConfigIssue[] {
   return PROVIDER_CHECKS.filter((check) => config[check.configFlag])
-    .map((check) => ({ label: check.label, missing: check.missing(config) }))
-    .filter(({ missing }) => missing.length > 0);
+    .map((check) => ({
+      label: check.label,
+      missing: check.missing(config),
+      invalid: check.invalid?.(config) ?? [],
+    }))
+    .filter(
+      ({ missing, invalid }) => missing.length > 0 || invalid.length > 0,
+    );
 }
 
 /**
- * Log a consolidated report of enabled providers with missing credentials at
- * startup so a misconfiguration is visible immediately instead of being
- * discovered one failed fetch at a time.
+ * Log a consolidated report of enabled providers with missing or invalid
+ * configuration at startup so a misconfiguration is visible immediately
+ * instead of being discovered one failed fetch at a time.
  */
 export function ValidateProviderConfigs(config: Config): void {
-  const incomplete = GetIncompleteProviderConfigs(config);
+  const issues = GetProviderConfigIssues(config);
 
-  if (incomplete.length === 0) {
+  if (issues.length === 0) {
     logger.info("All enabled providers have their required configuration");
     return;
   }
-  for (const { label, missing } of incomplete) {
-    logger.warn(
-      `Provider ${label} is enabled but missing configuration: ${missing.join(", ")}`,
-    );
+  for (const { label, missing, invalid } of issues) {
+    if (missing.length > 0) {
+      logger.warn(
+        `Provider ${label} is enabled but missing configuration: ${missing.join(", ")}`,
+      );
+    }
+    if (invalid.length > 0) {
+      logger.warn(
+        `Provider ${label} is enabled but has invalid configuration: ${invalid.join(", ")}`,
+      );
+    }
   }
 }

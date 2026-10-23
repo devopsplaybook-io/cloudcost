@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { WithRetry } from "../Retry";
 import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("DeepSeekCost");
@@ -25,13 +26,23 @@ export async function DeepSeekGetBalance(
       throw new Error("Missing DEEPSEEK_API_KEY");
     }
 
-    const response = await axios.get(`${DEEPSEEK_API_BASE}/user/balance`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
+    const response = await WithRetry(
+      () =>
+        axios.get(`${DEEPSEEK_API_BASE}/user/balance`, {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: "application/json",
+          },
+          timeout: COST_HTTP_TIMEOUT_MS,
+        }),
+      {
+        onRetry: (err, attempt, delayMs) =>
+          logger.warn(
+            `DeepSeek balance request failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+            span,
+          ),
       },
-      timeout: COST_HTTP_TIMEOUT_MS,
-    });
+    );
 
     const data = response.data;
     const balances: DeepSeekBalance[] = [];

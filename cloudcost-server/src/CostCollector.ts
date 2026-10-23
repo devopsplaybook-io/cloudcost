@@ -23,6 +23,16 @@ export function CostCollectorInit(configIn: Config): void {
   config = configIn;
 }
 
+// A successful fetch replaces the provider's balances in full: known
+// currencies are cleared first so a currency dropped by the API does not
+// keep reporting a stale amount, and an empty successful response reports
+// "unknown" instead of the previous value.
+function ResetBalances(balances: Record<string, number | undefined>): void {
+  for (const currency of Object.keys(balances)) {
+    balances[currency] = undefined;
+  }
+}
+
 export async function CostCollectorFetch(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerPricesCheck");
   const tasks: Promise<void>[] = [];
@@ -63,6 +73,7 @@ export async function CostCollectorFetch(): Promise<void> {
       DeepSeekGetBalance(span)
         .then((balances) => {
           RecordFetchSuccess("deepseek", new Date());
+          ResetBalances(deepseekBalances);
           for (const b of balances) {
             deepseekBalances[b.currency] = b.total_balance;
           }
@@ -85,6 +96,7 @@ export async function CostCollectorFetch(): Promise<void> {
       MoonshotAIGetBalance(span)
         .then((balances) => {
           RecordFetchSuccess("moonshotai", new Date());
+          ResetBalances(moonshotAIBalances);
           for (const b of balances) {
             moonshotAIBalances[b.currency] = b.available_balance;
           }
@@ -107,6 +119,7 @@ export async function CostCollectorFetch(): Promise<void> {
       ZAIGetBalance(span)
         .then((balances) => {
           RecordFetchSuccess("zai", new Date());
+          ResetBalances(zaiBalances);
           for (const b of balances) {
             zaiBalances[b.currency] = b.available_balance;
           }
@@ -129,6 +142,7 @@ export async function CostCollectorFetch(): Promise<void> {
       JevGetBalance(span)
         .then((balances) => {
           RecordFetchSuccess("jev", new Date());
+          ResetBalances(jevBalances);
           for (const b of balances) {
             jevBalances[b.currency] = b.available_balance;
           }

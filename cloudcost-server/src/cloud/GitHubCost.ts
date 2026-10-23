@@ -1,11 +1,14 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
 import { Config } from "../Config";
+import { WithRetry } from "../Retry";
 import {
   COST_HTTP_TIMEOUT_MS,
   CostBreakdownInterface,
 } from "./CostBreakdownInterface";
+
+const logger = OTelLogger().createModuleLogger("GitHubCost");
 
 const GITHUB_API_BASE = "https://api.github.com";
 
@@ -50,19 +53,29 @@ export async function GitHubGetMonthCurrent(
     const now = new Date();
     const endpoint =
       accountType === "organization" ? "organizations" : "users";
-    const response = await axios.get<GitHubUsageResponse>(
-      `${GITHUB_API_BASE}/${endpoint}/${encodeURIComponent(account)}/settings/billing/usage`,
+    const response = await WithRetry(
+      () =>
+        axios.get<GitHubUsageResponse>(
+          `${GITHUB_API_BASE}/${endpoint}/${encodeURIComponent(account)}/settings/billing/usage`,
+          {
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${token}`,
+              "X-GitHub-Api-Version": "2026-03-10",
+            },
+            params: {
+              year: now.getUTCFullYear(),
+              month: now.getUTCMonth() + 1,
+            },
+            timeout: COST_HTTP_TIMEOUT_MS,
+          },
+        ),
       {
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "X-GitHub-Api-Version": "2026-03-10",
-        },
-        params: {
-          year: now.getUTCFullYear(),
-          month: now.getUTCMonth() + 1,
-        },
-        timeout: COST_HTTP_TIMEOUT_MS,
+        onRetry: (err, attempt, delayMs) =>
+          logger.warn(
+            `GitHub billing request failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+            span,
+          ),
       },
     );
 

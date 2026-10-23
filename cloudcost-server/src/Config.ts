@@ -71,7 +71,14 @@ export class Config implements ConfigOTelInterface {
       if (rawValue !== undefined) {
         const defaultValue = this[field];
         if (typeof defaultValue === "boolean") {
-          this[field] = rawValue.trim().toLowerCase() === "true";
+          const normalized = rawValue.trim().toLowerCase();
+          if (normalized === "true" || normalized === "false") {
+            this[field] = normalized === "true";
+          } else {
+            logger.error(
+              `Invalid boolean value for ${field}: '${rawValue}' (from ${fromEnv}), keeping current value ${defaultValue}`,
+            );
+          }
         } else if (typeof defaultValue === "number") {
           const numericValue = Number(rawValue);
           if (rawValue.trim() === "" || !Number.isFinite(numericValue)) {

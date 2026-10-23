@@ -1,5 +1,6 @@
 import {
   GetProviderFetchStatus,
+  MarkFetchFailureAlerted,
   RecordFetchFailure,
   RecordFetchSuccess,
   ResetFetchStatuses,
@@ -30,6 +31,7 @@ describe("FetchStatus", () => {
       lastSuccessAt: later,
       lastError: undefined,
       consecutiveFailures: 0,
+      failureAlerted: false,
     });
   });
 
@@ -44,7 +46,26 @@ describe("FetchStatus", () => {
       lastSuccessAt: undefined,
       lastError: "timeout",
       consecutiveFailures: 2,
+      failureAlerted: false,
     });
+  });
+
+  it("marks the failure alert as delivered until the next success", () => {
+    RecordFetchFailure("github", at, "timeout");
+    MarkFetchFailureAlerted("github");
+
+    expect(GetProviderFetchStatus("github")?.failureAlerted).toBe(true);
+
+    RecordFetchFailure("github", later, "timeout again");
+    expect(GetProviderFetchStatus("github")?.failureAlerted).toBe(true);
+
+    RecordFetchSuccess("github", later);
+    expect(GetProviderFetchStatus("github")?.failureAlerted).toBe(false);
+  });
+
+  it("does not fail when marking an unknown provider", () => {
+    expect(() => MarkFetchFailureAlerted("unknown")).not.toThrow();
+    expect(GetProviderFetchStatus("unknown")).toBeUndefined();
   });
 
   it("tracks providers independently and keeps the last success through failures", () => {

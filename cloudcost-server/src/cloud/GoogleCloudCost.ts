@@ -2,6 +2,7 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { BigQuery } from "@google-cloud/bigquery";
 import { OTelTracer } from "../OTelContext";
 import { CostBreakdownInterface } from "./CostBreakdownInterface";
+import { GetUtcMonthWindow } from "./MonthWindow";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAXIMUM_BYTES_BILLED = "1000000000";
@@ -47,8 +48,7 @@ export async function GoogleCloudGetMonthCurrent(
 
     const fullTableName = `\`${billingProjectId}.${billingDataset}.${billingTable}\``;
 
-    const now = new Date();
-    const invoiceMonth = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const invoiceMonth = GetUtcMonthWindow().invoiceMonth;
 
     const query = `
       SELECT

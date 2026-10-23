@@ -61,6 +61,73 @@ describe("AlibabaCloudCost", () => {
     });
   });
 
+  it("should aggregate every bill page instead of only the first", async () => {
+    queryAccountBillMock
+      .mockResolvedValueOnce({
+        body: {
+          data: {
+            totalCount: 3,
+            items: {
+              item: [
+                { productName: "ECS", pretaxAmount: 5 },
+                { productName: "OSS", pretaxAmount: 2.5 },
+              ],
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        body: {
+          data: {
+            totalCount: 3,
+            items: { item: [{ productCode: "CDN", pretaxAmount: 1 }] },
+          },
+        },
+      });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).resolves.toEqual({
+      total: 8.5,
+      services: { ECS: 5, OSS: 2.5, CDN: 1 },
+    });
+    expect(queryAccountBillMock).toHaveBeenCalledTimes(2);
+    expect(queryAccountBillMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        input: expect.objectContaining({ pageNum: 1, pageSize: 300 }),
+      }),
+    );
+    expect(queryAccountBillMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        input: expect.objectContaining({ pageNum: 2, pageSize: 300 }),
+      }),
+    );
+  });
+
+  it("should query the UTC billing cycle even when the host timezone is ahead of UTC", async () => {
+    const originalTz = process.env.TZ;
+    process.env.TZ = "Asia/Shanghai";
+    try {
+      jest.useFakeTimers().setSystemTime(new Date("2026-10-31T16:30:00Z"));
+      queryAccountBillMock.mockResolvedValueOnce({});
+
+      await AlibabaCloudGetMonthCurrent(fakeSpan);
+
+      expect(queryAccountBillMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ billingCycle: "2026-10" }),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+      if (originalTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = originalTz;
+      }
+    }
+  });
+
   it("should tolerate an empty response", async () => {
     queryAccountBillMock.mockResolvedValueOnce({});
 

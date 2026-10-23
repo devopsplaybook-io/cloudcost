@@ -251,6 +251,43 @@ describe("Config", () => {
     });
   });
 
+  describe("boolean validation", () => {
+    function consoleOutput(): string {
+      return jest
+        .mocked(console.log)
+        .mock.calls.map((call) => call.join(" "))
+        .join("\n");
+    }
+
+    it("should accept true/false case-insensitively and trimmed", async () => {
+      mockedFse.readJson.mockResolvedValueOnce({
+        COST_ENABLED_AWS: " TRUE ",
+        COST_ENABLED_GITHUB: "False",
+      });
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_ENABLED_AWS).toBe(true);
+      expect(config.COST_ENABLED_GITHUB).toBe(false);
+    });
+
+    it("should ignore an invalid boolean value and keep the current one", async () => {
+      jest.spyOn(console, "log").mockImplementation(() => {});
+      process.env.COST_ENABLED_AWS = "yes";
+      mockedFse.readJson.mockResolvedValueOnce({});
+
+      const config = new Config();
+      await config.reload();
+
+      expect(config.COST_ENABLED_AWS).toBe(false);
+      expect(consoleOutput()).toContain(
+        "Invalid boolean value for COST_ENABLED_AWS",
+      );
+      expect(consoleOutput()).toContain("keeping current value false");
+    });
+  });
+
   describe("version consistency", () => {
     it("should keep the root and server package.json versions in sync", () => {
       const rootPackage = JSON.parse(

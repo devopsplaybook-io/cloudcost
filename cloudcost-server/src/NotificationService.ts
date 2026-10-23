@@ -1,10 +1,14 @@
 import { NotificationsClient } from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 import { CLOUDS, cost } from "./CloudDefinitions";
-import { FETCH_STALE_AFTER_MS, GetProviderFetchStatus } from "./FetchStatus";
+import {
+  FETCH_STALE_AFTER_MS,
+  GetProviderFetchStatus,
+  MarkFetchFailureAlerted,
+} from "./FetchStatus";
 import { LLM_BALANCE_SOURCES } from "./Metrics";
 import { OTelLogger } from "./OTelContext";
-import { GetIncompleteProviderConfigs } from "./ProviderConfigCheck";
+import { GetProviderConfigIssues } from "./ProviderConfigCheck";
 
 const logger = OTelLogger().createModuleLogger("notification-service");
 
@@ -52,32 +56,39 @@ export async function NotificationCheckThreshold(): Promise<void> {
   const totalCost = getEnabledTotalCost();
   const projectedMonthEnd = projectMonthEnd(totalCost);
 
-  // Calculate which threshold multiple the current cost corresponds to
+  // Calculate which threshold multiple the current cost corresponds to.
+  // The baseline measurement only establishes the reference and never
+  // notifies.
   const currentMultiple = Math.floor(totalCost / threshold);
   const previousMultiple = previousThresholdMultiple;
-  previousThresholdMultiple = currentMultiple;
+  if (previousMultiple === null) {
+    previousThresholdMultiple = currentMultiple;
+    return;
+  }
 
-  // Only notify when a threshold multiple is newly reached between two
-  // consecutive measurements: the baseline measurement never notifies
-  if (
-    previousMultiple !== null &&
-    currentMultiple > previousMultiple &&
-    currentMultiple > 0
-  ) {
-    const thresholdAmount = currentMultiple * threshold;
-    const budget = config.COST_BUDGET_MONTHLY_USD;
+  // No new multiple reached (or the cost dropped, e.g. month rollover): stay
+  // silent but re-arm the alert.
+  if (currentMultiple <= previousMultiple || currentMultiple <= 0) {
+    previousThresholdMultiple = currentMultiple;
+    return;
+  }
 
-    const title = `Cloud cost threshold reached: $${thresholdAmount.toFixed(2)}`;
-    const body = `Total month-to-date cost has reached ${formatUsd(totalCost)} (${buildEnabledCostBreakdown()}). Projected month-end: ${formatUsd(projectedMonthEnd)}${budget > 0 ? ` (${budgetPercent(projectedMonthEnd, budget)}% of budget)` : ""}`;
+  const thresholdAmount = currentMultiple * threshold;
+  const budget = config.COST_BUDGET_MONTHLY_USD;
 
-    const response = await notificationClient.warning(
-      title,
-      body,
-      "cloudcost",
+  const title = `Cloud cost threshold reached: $${thresholdAmount.toFixed(2)}`;
+  const body = `Total month-to-date cost has reached ${formatUsd(totalCost)} (${buildEnabledCostBreakdown()}). Projected month-end: ${formatUsd(projectedMonthEnd)}${budget > 0 ? ` (${budgetPercent(projectedMonthEnd, budget)}% of budget)` : ""}`;
+
+  const response = await notificationClient.warning(title, body, "cloudcost");
+  if (response) {
+    // Advance the baseline only after a successful delivery; a failed
+    // delivery is retried on the next check.
+    previousThresholdMultiple = currentMultiple;
+    logger.info(`Threshold notification sent: ${title}`);
+  } else {
+    logger.warn(
+      `Threshold notification delivery failed, retrying on the next check: ${title}`,
     );
-    if (response) {
-      logger.info(`Threshold notification sent: ${title}`);
-    }
   }
 }
 
@@ -204,7 +215,6 @@ export async function NotificationCheckLLMBalances(): Promise<void> {
     const state: LLMBalanceState =
       balance <= 0 ? "error" : balance < threshold ? "warning" : "ok";
     const previousState = previousLLMBalanceStates.get(source.provider);
-    previousLLMBalanceStates.set(source.provider, state);
 
     // Only notify when a provider crosses into a low-credit state between two
     // consecutive checks: the baseline measurement never notifies and
@@ -214,6 +224,7 @@ export async function NotificationCheckLLMBalances(): Promise<void> {
       previousState === undefined ||
       previousState === state
     ) {
+      previousLLMBalanceStates.set(source.provider, state);
       continue;
     }
 
@@ -231,7 +242,14 @@ export async function NotificationCheckLLMBalances(): Promise<void> {
         ? await notificationClient.error(title, body, "cloudcost")
         : await notificationClient.warning(title, body, "cloudcost");
     if (response) {
+      // Commit the new state only after a successful delivery; a failed
+      // delivery is retried on the next check while the state still differs.
+      previousLLMBalanceStates.set(source.provider, state);
       logger.info(`LLM balance notification sent: ${title}`);
+    } else {
+      logger.warn(
+        `LLM balance notification delivery failed, retrying on the next check: ${title}`,
+      );
     }
   }
 }
@@ -246,11 +264,13 @@ export function NotificationResetLLMBalances(): void {
 
 /**
  * Send a `warning` notification for every enabled provider whose fetch has
- * failed exactly `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive times
- * (`0` disables the check). The exact-match condition makes the notification
- * transition-only: it fires once when the failure streak first reaches the
- * threshold, stays silent for longer streaks, and is re-armed by a successful
- * fetch (or a restart, which resets the in-memory fetch status).
+ * failed at least `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive times
+ * (`0` disables the check). The notification is transition-only: it fires once
+ * when the failure streak first reaches the threshold, stays silent while the
+ * streak keeps growing, and is re-armed by a successful fetch (or a restart,
+ * which resets the in-memory fetch status). The alert is only marked as
+ * delivered after a successful send, so a failed delivery is retried on the
+ * next check.
  */
 export async function NotificationCheckFetchFailures(): Promise<void> {
   if (!notificationClient || !notificationClient.isEnabled()) {
@@ -267,15 +287,24 @@ export async function NotificationCheckFetchFailures(): Promise<void> {
       continue;
     }
     const status = GetProviderFetchStatus(cloud.key);
-    if (status?.consecutiveFailures !== threshold) {
+    if (
+      !status ||
+      status.consecutiveFailures < threshold ||
+      status.failureAlerted
+    ) {
       continue;
     }
     const title = `Cloud cost fetch failing: ${cloud.label}`;
-    const body = `${cloud.label} cost fetch has failed ${threshold} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
+    const body = `${cloud.label} cost fetch has failed ${status.consecutiveFailures} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
 
     const response = await notificationClient.warning(title, body, "cloudcost");
     if (response) {
+      MarkFetchFailureAlerted(cloud.key);
       logger.info(`Fetch failure notification sent: ${title}`);
+    } else {
+      logger.warn(
+        `Fetch failure notification delivery failed, retrying on the next check: ${title}`,
+      );
     }
   }
 
@@ -284,15 +313,24 @@ export async function NotificationCheckFetchFailures(): Promise<void> {
       continue;
     }
     const status = GetProviderFetchStatus(source.provider);
-    if (status?.consecutiveFailures !== threshold) {
+    if (
+      !status ||
+      status.consecutiveFailures < threshold ||
+      status.failureAlerted
+    ) {
       continue;
     }
     const title = `LLM credit fetch failing: ${source.provider}`;
-    const body = `${source.provider} credit fetch has failed ${threshold} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
+    const body = `${source.provider} credit fetch has failed ${status.consecutiveFailures} consecutive times. Last error: ${status.lastError ?? "unknown"}. Last successful fetch: ${status.lastSuccessAt ? `${formatTimestamp(status.lastSuccessAt)} UTC` : "never"}.`;
 
     const response = await notificationClient.warning(title, body, "cloudcost");
     if (response) {
+      MarkFetchFailureAlerted(source.provider);
       logger.info(`Fetch failure notification sent: ${title}`);
+    } else {
+      logger.warn(
+        `Fetch failure notification delivery failed, retrying on the next check: ${title}`,
+      );
     }
   }
 }
@@ -342,11 +380,15 @@ export async function NotificationCheckBudget(): Promise<void> {
   }
 
   const previousLevelIndex = previousBudgetLevel;
-  previousBudgetLevel = currentLevelIndex;
-
-  // Notify once per newly crossed level, in ascending order: the baseline
-  // never notifies and a drop to a lower level is silent but re-arms
-  if (previousLevelIndex !== null && currentLevelIndex > previousLevelIndex) {
+  if (previousLevelIndex === null) {
+    // The baseline measurement only establishes the reference.
+    previousBudgetLevel = currentLevelIndex;
+  } else if (currentLevelIndex > previousLevelIndex) {
+    // Notify once per newly crossed level, in ascending order. Advance the
+    // baseline level by level, and only after a successful delivery, so a
+    // failed notification is retried (without re-sending the levels already
+    // delivered) on the next check.
+    let deliveredLevelIndex = previousLevelIndex;
     const breakdown = buildEnabledCostBreakdown();
     for (let i = previousLevelIndex + 1; i <= currentLevelIndex; i++) {
       const level = BUDGET_ALERT_LEVELS[i];
@@ -358,26 +400,44 @@ export async function NotificationCheckBudget(): Promise<void> {
         body,
         "cloudcost",
       );
-      if (response) {
-        logger.info(`Budget notification sent: ${title}`);
+      if (!response) {
+        logger.warn(
+          `Budget notification delivery failed, retrying on the next check: ${title}`,
+        );
+        break;
       }
+      deliveredLevelIndex = i;
+      logger.info(`Budget notification sent: ${title}`);
     }
+    previousBudgetLevel = deliveredLevelIndex;
+  } else {
+    // No new level reached (or the spend dropped): stay silent but re-arm.
+    previousBudgetLevel = currentLevelIndex;
   }
 
   const forecastExceeded = projectedMonthEnd > budget;
   const previousForecast = previousForecastExceeded;
-  previousForecastExceeded = forecastExceeded;
 
-  // Notify once when the projection first exceeds the budget: the baseline
-  // never notifies and falling back below the budget is silent but re-arms
-  if (previousForecast === false && forecastExceeded) {
+  if (previousForecast === null) {
+    // The baseline measurement only establishes the reference.
+    previousForecastExceeded = forecastExceeded;
+  } else if (previousForecast === false && forecastExceeded) {
     const title = "Cloud cost forecast exceeds monthly budget";
     const body = `The projected month-end cost of ${formatUsd(projectedMonthEnd)} exceeds the ${formatUsd(budget)} monthly budget (${budgetPercent(projectedMonthEnd, budget)}%). Total month-to-date cost is currently ${formatUsd(totalCost)} (${buildEnabledCostBreakdown()}).`;
 
     const response = await notificationClient.warning(title, body, "cloudcost");
     if (response) {
+      previousForecastExceeded = true;
       logger.info(`Forecast notification sent: ${title}`);
+    } else {
+      logger.warn(
+        `Forecast notification delivery failed, retrying on the next check: ${title}`,
+      );
     }
+  } else {
+    // Notify once when the projection first exceeds the budget: falling back
+    // below the budget is silent but re-arms the alert.
+    previousForecastExceeded = forecastExceeded;
   }
 }
 
@@ -464,13 +524,20 @@ export function NotificationBuildSummaryBody(): string {
   const lines: string[] = [];
   const enabledClouds = CLOUDS.filter((cloud) => config[cloud.configFlag]);
 
-  const incompleteConfigs = GetIncompleteProviderConfigs(config);
-  if (incompleteConfigs.length > 0) {
+  const configIssues = GetProviderConfigIssues(config);
+  if (configIssues.length > 0) {
     lines.push("## Configuration issues", "");
-    for (const { label, missing } of incompleteConfigs) {
-      lines.push(
-        `- ${label} is enabled but missing configuration: ${missing.join(", ")}`,
-      );
+    for (const { label, missing, invalid } of configIssues) {
+      if (missing.length > 0) {
+        lines.push(
+          `- ${label} is enabled but missing configuration: ${missing.join(", ")}`,
+        );
+      }
+      if (invalid.length > 0) {
+        lines.push(
+          `- ${label} is enabled but has invalid configuration: ${invalid.join(", ")}`,
+        );
+      }
     }
     lines.push("");
   }

@@ -1,6 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { WithRetry } from "../Retry";
 import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("JevCost");
@@ -56,9 +57,15 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
     let remaining: number;
     try {
       // Management keys read the account-wide credit here.
-      const response = await axios.get(
-        `${OPENROUTER_API_BASE}/api/v1/credits`,
-        requestOptions,
+      const response = await WithRetry(
+        () => axios.get(`${OPENROUTER_API_BASE}/api/v1/credits`, requestOptions),
+        {
+          onRetry: (err, attempt, delayMs) =>
+            logger.warn(
+              `OpenRouter credits request failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+              span,
+            ),
+        },
       );
       const data = response.data;
       // OpenRouter answers HTTP 200 with an error envelope instead of a credits
@@ -89,9 +96,16 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
       if (status !== 401 && status !== 403) {
         throw err;
       }
-      const keyResponse = await axios.get(
-        `${OPENROUTER_API_BASE}/api/v1/auth/key`,
-        requestOptions,
+      const keyResponse = await WithRetry(
+        () =>
+          axios.get(`${OPENROUTER_API_BASE}/api/v1/auth/key`, requestOptions),
+        {
+          onRetry: (err, attempt, delayMs) =>
+            logger.warn(
+              `OpenRouter key request failed (attempt ${attempt}): ${(err as Error).message}, retrying in ${delayMs} ms`,
+              span,
+            ),
+        },
       );
       const keyData = keyResponse.data;
       const usage = Number(keyData?.data?.usage);

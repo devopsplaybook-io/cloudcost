@@ -180,6 +180,34 @@ describe("NotificationService", () => {
       }
     });
 
+    it("should list enabled providers with invalid configuration in the summary", async () => {
+      const client = givenNotificationsClient(true);
+      const config = new Config();
+      config.COST_ENABLED_GITHUB = true;
+      config.COST_ENABLED_JEV = true;
+      config.GITHUB_ACCOUNT = "example-org";
+      NotificationInit(config);
+      process.env.GITHUB_TOKEN = "test-token";
+      process.env.GITHUB_ACCOUNT_TYPE = "team";
+      process.env.JEV_API_KEY = "apikey_123";
+
+      try {
+        await NotificationSendSummary();
+
+        const body = client.info.mock.calls[0][1] as string;
+        expect(body).toContain(
+          "- GitHub is enabled but has invalid configuration: GITHUB_ACCOUNT_TYPE must be one of organization, user (got 'team')",
+        );
+        expect(body).toContain(
+          "- Jev is enabled but has invalid configuration: JEV_API_KEY must be an OpenRouter key (sk-or-v1-...) to read a remaining credit",
+        );
+      } finally {
+        delete process.env.GITHUB_TOKEN;
+        delete process.env.GITHUB_ACCOUNT_TYPE;
+        delete process.env.JEV_API_KEY;
+      }
+    });
+
     it("should mark stale and failed providers in the cost table", async () => {
       const client = givenNotificationsClient(true);
       const config = new Config();
@@ -363,6 +391,29 @@ describe("NotificationService", () => {
       expect(client.warning).toHaveBeenCalledTimes(1);
     });
 
+    it("should retry a threshold notification whose delivery failed", async () => {
+      const client = givenNotificationsClient(true);
+      client.warning.mockResolvedValueOnce(null);
+      givenEnabledConfig();
+      cost.aws = { total: 5, services: {} };
+      await NotificationCheckThreshold();
+
+      cost.aws = { total: 12, services: {} };
+      await NotificationCheckThreshold();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      // The failed delivery did not advance the baseline: the same multiple
+      // is notified again on the next check.
+      await NotificationCheckThreshold();
+
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenLastCalledWith(
+        "Cloud cost threshold reached: $10.00",
+        expect.any(String),
+        "cloudcost",
+      );
+    });
+
     it("should not notify when the notifications integration is disabled", async () => {
       const client = givenNotificationsClient(false);
       givenEnabledConfig();
@@ -455,6 +506,21 @@ describe("NotificationService", () => {
         "jev remaining credit dropped below the low-credit alert threshold ($5.00 USD).\n\n## LLM remaining credits\n\n| Provider | USD |\n| --- |\n| jev | 2.00 |\n| **Total** | **2.00** |",
         "cloudcost",
       );
+    });
+
+    it("should retry a low-credit notification whose delivery failed", async () => {
+      const client = givenNotificationsClient(true);
+      client.warning.mockResolvedValueOnce(null);
+      givenEnabledConfig();
+      jevBalances.USD = 6;
+      await NotificationCheckLLMBalances();
+
+      jevBalances.USD = 2;
+      await NotificationCheckLLMBalances();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      await NotificationCheckLLMBalances();
+      expect(client.warning).toHaveBeenCalledTimes(2);
     });
 
     it("should not notify again while the balance stays below the threshold", async () => {
@@ -681,6 +747,25 @@ describe("NotificationService", () => {
       expect(client.warning).toHaveBeenCalledTimes(1);
     });
 
+    it("should retry the notification when its delivery failed", async () => {
+      const client = givenNotificationsClient(true);
+      client.warning.mockResolvedValueOnce(null);
+      givenEnabledConfig();
+      for (let i = 0; i < 3; i++) {
+        RecordFetchFailure("azure", new Date(), "boom");
+      }
+
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(2);
+
+      // The successful delivery marks the streak as alerted: stay silent.
+      await NotificationCheckFetchFailures();
+      expect(client.warning).toHaveBeenCalledTimes(2);
+    });
+
     it("should re-arm the notification after a successful fetch", async () => {
       const client = givenNotificationsClient(true);
       givenEnabledConfig();
@@ -887,6 +972,46 @@ describe("NotificationService", () => {
       expect(client.warning).toHaveBeenLastCalledWith(
         "Cloud cost forecast exceeds monthly budget",
         "The projected month-end cost of $41.69 exceeds the $40.00 monthly budget (104%). Total month-to-date cost is currently $39.00 (AWS: $39.00).",
+        "cloudcost",
+      );
+    });
+
+    it("should retry a budget level notification whose delivery failed", async () => {
+      const client = givenNotificationsClient(true);
+      client.warning.mockResolvedValueOnce(null);
+      givenEnabledConfig(40);
+      cost.aws = { total: 10, services: {} };
+      await NotificationCheckBudget();
+
+      cost.aws = { total: 21, services: {} };
+      await NotificationCheckBudget();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      await NotificationCheckBudget();
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenLastCalledWith(
+        "Cloud cost budget reached: 50% of $40.00 used",
+        expect.any(String),
+        "cloudcost",
+      );
+    });
+
+    it("should retry the forecast notification whose delivery failed", async () => {
+      const client = givenNotificationsClient(true);
+      client.warning.mockResolvedValueOnce(null);
+      givenEnabledConfig(40);
+      cost.aws = { total: 30, services: {} };
+      await NotificationCheckBudget();
+
+      cost.aws = { total: 39, services: {} };
+      await NotificationCheckBudget();
+      expect(client.warning).toHaveBeenCalledTimes(1);
+
+      await NotificationCheckBudget();
+      expect(client.warning).toHaveBeenCalledTimes(2);
+      expect(client.warning).toHaveBeenLastCalledWith(
+        "Cloud cost forecast exceeds monthly budget",
+        expect.any(String),
         "cloudcost",
       );
     });

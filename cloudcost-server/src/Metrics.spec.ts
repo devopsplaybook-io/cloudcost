@@ -120,7 +120,7 @@ describe("Metrics", () => {
     expect(points).toContainEqual({ value: 7, attributes: { provider: "total" } });
   });
 
-  it("does not report a Jev point when its balance is zero", () => {
+  it("reports a zero balance so a depleted provider stays visible", () => {
     const config = new Config();
     config.COST_ENABLED_JEV = true;
     config.COST_ENABLED_ZAI = true;
@@ -130,10 +130,41 @@ describe("Metrics", () => {
     MetricsInit(config);
 
     const points = collect("ai.balance.usd");
+    expect(points).toContainEqual({ value: 0, attributes: { provider: "jev" } });
+    expect(points).toContainEqual({ value: 2, attributes: { provider: "zai" } });
+    expect(points).toContainEqual({ value: 2, attributes: { provider: "total" } });
+  });
+
+  it("does not report a provider whose balance is not known yet", () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    config.COST_ENABLED_ZAI = true;
+    jevBalances.USD = undefined;
+    zaiBalances.USD = 2;
+
+    MetricsInit(config);
+
+    const points = collect("ai.balance.usd");
     expect(points).toContainEqual({ value: 2, attributes: { provider: "zai" } });
     expect(points).not.toContainEqual(
       expect.objectContaining({ attributes: { provider: "jev" } }),
     );
+    expect(points).toContainEqual({ value: 2, attributes: { provider: "total" } });
+  });
+
+  it("reports only the total when every known balance is zero", () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    config.COST_ENABLED_ZAI = true;
+    jevBalances.USD = 0;
+    zaiBalances.USD = 0;
+
+    MetricsInit(config);
+
+    const points = collect("ai.balance.usd");
+    expect(points).toContainEqual({ value: 0, attributes: { provider: "jev" } });
+    expect(points).toContainEqual({ value: 0, attributes: { provider: "zai" } });
+    expect(points).toContainEqual({ value: 0, attributes: { provider: "total" } });
   });
 
   it("does not register the USD credit gauge when no USD provider is enabled", () => {
