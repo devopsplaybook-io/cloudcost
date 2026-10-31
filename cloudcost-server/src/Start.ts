@@ -186,7 +186,7 @@ export async function Start(): Promise<void> {
 
   OTelSetTracer(new StandardTracer(config));
   OTelSetMeter(new StandardMeter(config));
-  OTelLogger().initOTel(config);
+  await OTelLogger().initOTel(config);
 
   const span = OTelTracer().startSpan("init");
   CostCollectorInit(config);

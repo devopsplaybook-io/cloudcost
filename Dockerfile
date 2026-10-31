@@ -1,5 +1,5 @@
 # BUILD
-FROM node:24.22.1-alpine3.24 as builder
+FROM node:24.22.2-alpine3.24 as builder
 
 WORKDIR /opt/src
 
@@ -13,7 +13,7 @@ RUN cd cloudcost-server && \
     npm prune --omit=dev
 
 # RUN
-FROM node:24.22.1-alpine3.24
+FROM node:24.22.2-alpine3.24
 
 COPY --from=builder /opt/src/cloudcost-server/node_modules /opt/app/cloudcost/node_modules
 COPY --from=builder /opt/src/cloudcost-server/dist /opt/app/cloudcost/dist

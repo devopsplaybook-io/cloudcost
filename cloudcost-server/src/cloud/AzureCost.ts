@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { CostManagementClient } from "@azure/arm-costmanagement";
 import { ClientSecretCredential } from "@azure/identity";

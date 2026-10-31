@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { BigQuery } from "@google-cloud/bigquery";
 import { OTelTracer } from "../OTelContext";
 import { CostBreakdownInterface } from "./CostBreakdownInterface";

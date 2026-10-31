@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import BssOpenApi from "@alicloud/bssopenapi20171214";
 import { AlibabaCloudGetMonthCurrent } from "./AlibabaCloudCost";
 
