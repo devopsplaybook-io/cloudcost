@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { CostManagementClient } from "@azure/arm-costmanagement";
 import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 import { AzureGetMonthCurrent } from "./AzureCost";

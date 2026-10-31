@@ -40,7 +40,7 @@ cloudcost/
 │   ├── package.json
 │   ├── jest.config.js
 │   └── tsconfig.json
-├── Dockerfile                 # Multi-stage build (node:24.22.1-alpine3.24)
+├── Dockerfile                 # Multi-stage build (node:24.22.2-alpine3.24)
 ├── ecosystem.config.js        # PM2 process manager config for dev
 ├── env-dev.js                 # Local dev credentials (gitignored)
 └── docs/dev/                  # Dev scripts (run-dev-env.sh, run-dev-dependencies-rebuild.sh)
@@ -166,12 +166,12 @@ Priority order: **environment variables > `config.json` > class defaults**.
 
 Multi-stage Dockerfile:
 
-- **Builder stage:** `node:24.22.1-alpine3.24`, installs build tools, runs `npm ci && npm run build && npm prune --omit=dev` so only production modules are carried over
-- **Runtime stage:** `node:24.22.1-alpine3.24`, copies the pruned `node_modules`, `dist/`, `config.json`, and `package.json`, and sets `NODE_ENV=production`
+- **Builder stage:** `node:24.22.2-alpine3.24`, installs build tools, runs `npm ci && npm run build && npm prune --omit=dev` so only production modules are carried over
+- **Runtime stage:** `node:24.22.2-alpine3.24`, copies the pruned `node_modules`, `dist/`, `config.json`, and `package.json`, and sets `NODE_ENV=production`
 - Runs as the non-root `node` user (`USER node`)
 - Entry point: `dist/App.js`
 - The server declares `engines.node >= 24.0.0`
-- CI reuses pinned `devopsplaybook-io/common-utils` workflows at commit `f132584acb5d712c571012e7dfbbeba6a92efe93` (bump deliberately together)
+- CI reuses pinned `devopsplaybook-io/common-utils` workflows at commit `039402a1c1bc53a91546a7e126070e834a5d097a` (bump deliberately together)
 
 ## Important Notes
 

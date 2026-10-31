@@ -200,15 +200,16 @@ describe("Config", () => {
   });
 
   describe("numeric validation", () => {
+    // ModuleLogger writes error-level messages to console.error.
     function consoleOutput(): string {
       return jest
-        .mocked(console.log)
+        .mocked(console.error)
         .mock.calls.map((call) => call.join(" "))
         .join("\n");
     }
 
     it("should ignore a non-numeric value and keep the current one", async () => {
-      const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+      jest.spyOn(console, "error").mockImplementation(() => {});
       process.env.COST_NOTIFICATION_THRESHOLD = "abc";
       mockedFse.readJson.mockResolvedValueOnce({});
 
@@ -219,11 +220,10 @@ describe("Config", () => {
       expect(consoleOutput()).toContain(
         "Invalid numeric value for COST_NOTIFICATION_THRESHOLD",
       );
-      consoleSpy.mockRestore();
     });
 
     it("should ignore a blank value and keep the current one", async () => {
-      jest.spyOn(console, "log").mockImplementation(() => {});
+      jest.spyOn(console, "error").mockImplementation(() => {});
       process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS =
         "   ";
       mockedFse.readJson.mockResolvedValueOnce({});
@@ -254,7 +254,7 @@ describe("Config", () => {
   describe("boolean validation", () => {
     function consoleOutput(): string {
       return jest
-        .mocked(console.log)
+        .mocked(console.error)
         .mock.calls.map((call) => call.join(" "))
         .join("\n");
     }
@@ -273,7 +273,7 @@ describe("Config", () => {
     });
 
     it("should ignore an invalid boolean value and keep the current one", async () => {
-      jest.spyOn(console, "log").mockImplementation(() => {});
+      jest.spyOn(console, "error").mockImplementation(() => {});
       process.env.COST_ENABLED_AWS = "yes";
       mockedFse.readJson.mockResolvedValueOnce({});
 

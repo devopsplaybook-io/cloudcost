@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { OTelTracer } from "../OTelContext";
 import BssOpenApi, * as $BssOpenApi from "@alicloud/bssopenapi20171214";
 import * as $OpenApi from "@alicloud/openapi-client";
