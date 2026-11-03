@@ -5,20 +5,27 @@ import { MoonshotAIGetBalance } from "./MoonshotAICost";
 
 jest.mock("axios");
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("MoonshotAICost", () => {
   const mockedAxios = jest.mocked(axios);
@@ -74,6 +81,36 @@ describe("MoonshotAICost", () => {
       const balances = await MoonshotAIGetBalance(fakeSpan);
 
       expect(balances).toEqual([]);
+    });
+
+    it("should report a non-finite balance as unknown and warn", async () => {
+      process.env.MOONSHOTAI_API_KEY = "sk-test";
+      mockedAxios.get.mockResolvedValueOnce({
+        data: { data: { available_balance: "not-a-number" } },
+      });
+
+      const balances = await MoonshotAIGetBalance(fakeSpan);
+
+      expect(balances).toEqual([]);
+      expect(mockLogger().warn).toHaveBeenCalledWith(
+        expect.stringContaining("Moonshot AI balance is missing"),
+        expect.anything(),
+      );
+    });
+
+    it("should report a null balance as unknown and warn", async () => {
+      process.env.MOONSHOTAI_API_KEY = "sk-test";
+      mockedAxios.get.mockResolvedValueOnce({
+        data: { data: { available_balance: null } },
+      });
+
+      const balances = await MoonshotAIGetBalance(fakeSpan);
+
+      expect(balances).toEqual([]);
+      expect(mockLogger().warn).toHaveBeenCalledWith(
+        expect.stringContaining("Moonshot AI balance is missing"),
+        expect.anything(),
+      );
     });
 
     it("should re-throw API errors", async () => {

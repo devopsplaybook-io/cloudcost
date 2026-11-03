@@ -2,33 +2,85 @@ import { Span } from "@opentelemetry/sdk-trace";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { CostManagementClient } from "@azure/arm-costmanagement";
 import { ClientSecretCredential } from "@azure/identity";
+import axios from "axios";
 import { WithRetry } from "../Retry";
 import {
   COST_HTTP_TIMEOUT_MS,
   CostBreakdownInterface,
+  RequireFiniteAmount,
 } from "./CostBreakdownInterface";
 import { GetUtcMonthWindow } from "./MonthWindow";
 
 const logger = OTelLogger().createModuleLogger("AzureCost");
 
 const MAX_ATTEMPTS = 4;
+// The query is grouped by ServiceName, so pages are expected to stay well
+// below Azure's 5,000-row limit; the cap protects against a looping nextLink.
+const MAX_PAGES = 20;
+const AZURE_MANAGEMENT_SCOPE = "https://management.azure.com/.default";
 
 type UsageParameters = Parameters<CostManagementClient["query"]["usage"]>[1];
 type UsageResult = Awaited<
   ReturnType<CostManagementClient["query"]["usage"]>
 >;
 
+interface UsagePage {
+  columns: NonNullable<UsageResult["columns"]>;
+  rows: NonNullable<UsageResult["rows"]>;
+}
+
+/**
+ * Run the Azure Cost Management query and follow `nextLink` to completion.
+ * The continuation contract is to re-POST the original QueryDefinition body to
+ * the absolute nextLink URL (the `$skiptoken` rides in the URL). The whole
+ * pagination runs inside one WithRetry so a single layer owns retries.
+ */
 async function queryUsageWithRetry(
   client: CostManagementClient,
+  credential: ClientSecretCredential,
   scope: string,
   parameters: UsageParameters,
   span: Span,
-): Promise<UsageResult> {
+): Promise<UsagePage> {
   return WithRetry(
-    () =>
-      client.query.usage(scope, parameters, {
+    async () => {
+      const first = await client.query.usage(scope, parameters, {
         requestOptions: { timeout: COST_HTTP_TIMEOUT_MS },
-      }),
+      });
+      const columns = first?.columns ?? [];
+      const rows = [...(first?.rows ?? [])];
+
+      let nextLink = first?.nextLink;
+      let pages = 1;
+      while (nextLink) {
+        if (pages >= MAX_PAGES) {
+          logger.warn(
+            `Azure Cost Management query reached the ${MAX_PAGES}-page cap; results may be truncated`,
+            span,
+          );
+          break;
+        }
+        const accessToken = (
+          await credential.getToken(AZURE_MANAGEMENT_SCOPE)
+        )?.token;
+        if (!accessToken) {
+          throw new Error("Azure credential did not return an access token");
+        }
+        const response = await axios.post(nextLink, parameters, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          timeout: COST_HTTP_TIMEOUT_MS,
+        });
+        rows.push(...(response.data?.rows ?? []));
+        nextLink = response.data?.nextLink;
+        pages += 1;
+      }
+
+      return { columns, rows };
+    },
     {
       maxAttempts: MAX_ATTEMPTS,
       onRetry: (err, attempt, delayMs) => {
@@ -55,7 +107,11 @@ export async function AzureGetMonthCurrent(
       clientId,
       clientSecret,
     );
-    const client = new CostManagementClient(credential);
+    // WithRetry is the only retry layer: the SDK must not multiply the
+    // attempts against an endpoint that is already throttling.
+    const client = new CostManagementClient(credential, {
+      retryOptions: { maxRetries: 0 },
+    });
 
     const window = GetUtcMonthWindow();
 
@@ -63,49 +119,56 @@ export async function AzureGetMonthCurrent(
       process.env.AZURE_COST_SCOPE ||
       `subscriptions/${process.env.AZURE_SUBSCRIPTION_ID}`;
 
+    const parameters: UsageParameters = {
+      type: "ActualCost",
+      timeframe: "Custom",
+      timePeriod: {
+        from: window.start,
+        to: window.end,
+      },
+      dataset: {
+        granularity: "None",
+        aggregation: {
+          totalCost: {
+            name: "PreTaxCost",
+            function: "Sum",
+          },
+        },
+        grouping: [
+          {
+            type: "Dimension",
+            name: "ServiceName",
+          },
+        ],
+      },
+    };
+
     const result = await queryUsageWithRetry(
       client,
+      credential,
       scope,
-      {
-        type: "ActualCost",
-        timeframe: "Custom",
-        timePeriod: {
-          from: window.start,
-          to: window.end,
-        },
-        dataset: {
-          granularity: "None",
-          aggregation: {
-            totalCost: {
-              name: "PreTaxCost",
-              function: "Sum",
-            },
-          },
-          grouping: [
-            {
-              type: "Dimension",
-              name: "ServiceName",
-            },
-          ],
-        },
-      },
+      parameters,
       span,
     );
 
     // Calculate service breakdown and total
     const services: Record<string, number> = {};
     let total = 0;
-    if (result?.rows && result.rows.length > 0) {
+    if (result.rows.length > 0) {
       // Columns order: [cost, serviceName, ...] when grouped by ServiceName
       // Find column indices from result.columns
-      const columns = result.columns || [];
-      const costIdx = columns.findIndex(
+      const costIdx = result.columns.findIndex(
         (c) => c.name === "PreTaxCost" || c.name === "totalCost",
       );
-      const serviceIdx = columns.findIndex((c) => c.name === "ServiceName");
+      const serviceIdx = result.columns.findIndex(
+        (c) => c.name === "ServiceName",
+      );
       for (const row of result.rows) {
         const cost = parseFloat(
-          Number(row[costIdx >= 0 ? costIdx : 0]).toFixed(2),
+          RequireFiniteAmount(
+            row[costIdx >= 0 ? costIdx : 0],
+            "Azure PreTaxCost",
+          ).toFixed(2),
         );
         const serviceName =
           serviceIdx >= 0

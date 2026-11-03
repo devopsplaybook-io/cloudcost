@@ -1,13 +1,19 @@
 import { Span } from "@opentelemetry/sdk-trace";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
 import {
   CostExplorerClient,
   GetCostAndUsageCommand,
   Granularity,
 } from "@aws-sdk/client-cost-explorer";
-import { COST_HTTP_TIMEOUT_MS, CostBreakdownInterface } from "./CostBreakdownInterface";
+import {
+  COST_HTTP_TIMEOUT_MS,
+  CostBreakdownInterface,
+  RequireFiniteAmount,
+} from "./CostBreakdownInterface";
 import { GetUtcMonthWindow } from "./MonthWindow";
 import { WithTimeout } from "../Timeout";
+
+const logger = OTelLogger().createModuleLogger("AWSCost");
 
 // Cost Explorer pages grouped results; the cap protects against a bad token
 // loop while comfortably covering large accounts.
@@ -53,9 +59,16 @@ export async function AWSGetMonthCurrent(
       for (const resultsByTime of data.ResultsByTime ?? []) {
         for (const group of resultsByTime.Groups ?? []) {
           const serviceName = group.Keys?.[0] || "Unknown";
-          const serviceAmount = group.Metrics?.UnblendedCost?.Amount;
-          if (serviceAmount && Number(serviceAmount) !== 0) {
-            const parsedAmount = parseFloat(Number(serviceAmount).toFixed(2));
+          const rawAmount = group.Metrics?.UnblendedCost?.Amount;
+          if (rawAmount === undefined) {
+            continue;
+          }
+          const serviceAmount = RequireFiniteAmount(
+            rawAmount,
+            "AWS UnblendedCost.Amount",
+          );
+          if (serviceAmount !== 0) {
+            const parsedAmount = parseFloat(serviceAmount.toFixed(2));
             services[serviceName] = parseFloat(
               ((services[serviceName] || 0) + parsedAmount).toFixed(2),
             );
@@ -68,6 +81,12 @@ export async function AWSGetMonthCurrent(
       if (!nextPageToken) {
         break;
       }
+    }
+    if (nextPageToken) {
+      logger.warn(
+        `AWS Cost Explorer pagination reached the ${MAX_PAGES}-page cap; results may be truncated`,
+        span,
+      );
     }
 
     span.end();

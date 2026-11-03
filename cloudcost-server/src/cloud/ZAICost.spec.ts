@@ -5,21 +5,27 @@ import { ZAIGetBalance } from "./ZAICost";
 
 jest.mock("axios");
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("ZAICost", () => {
   const mockedAxios = jest.mocked(axios);
@@ -92,6 +98,46 @@ describe("ZAICost", () => {
       const balances = await ZAIGetBalance(fakeSpan);
 
       expect(balances).toEqual([]);
+    });
+
+    it("should report a non-finite balance as unknown and warn", async () => {
+      process.env.ZAI_API_KEY = "sk-test";
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          code: 200,
+          msg: "Operation successful",
+          data: { availableBalance: "not-a-number" },
+          success: true,
+        },
+      });
+
+      const balances = await ZAIGetBalance(fakeSpan);
+
+      expect(balances).toEqual([]);
+      expect(mockLogger().warn).toHaveBeenCalledWith(
+        expect.stringContaining("Z.AI balance is missing"),
+        expect.anything(),
+      );
+    });
+
+    it("should report a null balance as unknown and warn", async () => {
+      process.env.ZAI_API_KEY = "sk-test";
+      mockedAxios.get.mockResolvedValueOnce({
+        data: {
+          code: 200,
+          msg: "Operation successful",
+          data: { availableBalance: null },
+          success: true,
+        },
+      });
+
+      const balances = await ZAIGetBalance(fakeSpan);
+
+      expect(balances).toEqual([]);
+      expect(mockLogger().warn).toHaveBeenCalledWith(
+        expect.stringContaining("Z.AI balance is missing"),
+        expect.anything(),
+      );
     });
 
     it("should re-throw API errors", async () => {

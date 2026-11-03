@@ -9,21 +9,27 @@ jest.mock("@alicloud/bssopenapi20171214", () => ({
 }));
 jest.mock("@alicloud/openapi-client", () => ({ Config: jest.fn() }));
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("AlibabaCloudCost", () => {
   const queryAccountBillMock = jest.fn();
@@ -101,6 +107,133 @@ describe("AlibabaCloudCost", () => {
       expect.objectContaining({
         input: expect.objectContaining({ pageNum: 2, pageSize: 300 }),
       }),
+    );
+  });
+
+  it("should accept explicit USD amounts", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: {
+            item: [
+              { productName: "ECS", pretaxAmount: 5, currency: "USD" },
+              { productName: "OSS", pretaxAmount: 2.5, currency: "USD" },
+            ],
+          },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).resolves.toEqual({
+      total: 7.5,
+      services: { ECS: 5, OSS: 2.5 },
+    });
+    expect(mockLogger().warn).not.toHaveBeenCalled();
+  });
+
+  it("should reject costs reported in a non-USD currency", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: {
+            item: [{ productName: "ECS", pretaxAmount: 35, currency: "CNY" }],
+          },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Alibaba Cloud BSS reported costs in CNY; CloudCost requires USD",
+    );
+  });
+
+  it("should reject a mixed-currency response", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: {
+            item: [
+              { productName: "ECS", pretaxAmount: 5, currency: "USD" },
+              { productName: "OSS", pretaxAmount: 35, currency: "CNY" },
+            ],
+          },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Alibaba Cloud BSS reported costs in USD, CNY; CloudCost requires USD",
+    );
+  });
+
+  it("should warn and assume USD when the response reports no currency", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: { item: [{ productName: "ECS", pretaxAmount: 5 }] },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).resolves.toEqual({
+      total: 5,
+      services: { ECS: 5 },
+    });
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining("did not report a currency; assuming USD"),
+      expect.anything(),
+    );
+  });
+
+  it("should reject a non-finite pretax amount", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: {
+            item: [{ productName: "ECS", pretaxAmount: Number.NaN }],
+          },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Alibaba Cloud pretaxAmount: expected a finite number",
+    );
+  });
+
+  it("should reject a null pretax amount", async () => {
+    queryAccountBillMock.mockResolvedValueOnce({
+      body: {
+        data: {
+          items: {
+            item: [{ productName: "ECS", pretaxAmount: null }],
+          },
+        },
+      },
+    });
+
+    await expect(AlibabaCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Alibaba Cloud pretaxAmount: expected a finite number",
+    );
+  });
+
+  it("should warn when pagination reaches the page cap", async () => {
+    const fullPage = Array.from({ length: 300 }, () => ({
+      productName: "ECS",
+      pretaxAmount: 1,
+    }));
+    queryAccountBillMock.mockResolvedValue({
+      body: { data: { items: { item: fullPage } } },
+    });
+
+    await AlibabaCloudGetMonthCurrent(fakeSpan);
+
+    expect(queryAccountBillMock).toHaveBeenCalledTimes(100);
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Alibaba Cloud BSS pagination reached the 100-page cap",
+      ),
+      expect.anything(),
     );
   });
 

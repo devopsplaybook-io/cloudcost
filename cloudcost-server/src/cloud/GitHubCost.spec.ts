@@ -125,4 +125,20 @@ describe("GitHubCost", () => {
       "403 Forbidden",
     );
   });
+
+  it("rejects a non-finite netAmount", async () => {
+    process.env.GITHUB_TOKEN = "test-token";
+    process.env.GITHUB_ACCOUNT = "example-org";
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        usageItems: [
+          { product: "Copilot", sku: "Premium requests", netAmount: null },
+        ],
+      },
+    });
+
+    await expect(GitHubGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid GitHub netAmount: expected a finite number",
+    );
+  });
 });

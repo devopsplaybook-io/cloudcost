@@ -1,7 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace";
 import { BigQuery } from "@google-cloud/bigquery";
 import { OTelTracer } from "../OTelContext";
-import { CostBreakdownInterface } from "./CostBreakdownInterface";
+import { CostBreakdownInterface, RequireFiniteAmount } from "./CostBreakdownInterface";
 import { GetUtcMonthWindow } from "./MonthWindow";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -77,7 +77,11 @@ export async function GoogleCloudGetMonthCurrent(
 
     for (const row of rows) {
       const serviceName: string = row.service_name || "unknown_service";
-      const cost = parseFloat(Number(row.total_cost).toFixed(2));
+      const cost = parseFloat(
+        RequireFiniteAmount(row.total_cost, "Google Cloud total_cost").toFixed(
+          2,
+        ),
+      );
       if (cost !== 0) {
         services[serviceName] = parseFloat(
           ((services[serviceName] || 0) + cost).toFixed(2),

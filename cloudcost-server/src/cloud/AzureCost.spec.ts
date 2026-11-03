@@ -1,5 +1,12 @@
 import { Span } from "@opentelemetry/sdk-trace";
 import { CostManagementClient } from "@azure/arm-costmanagement";
+import { ClientSecretCredential } from "@azure/identity";
+import {
+  RestError,
+  createHttpHeaders,
+  createPipelineRequest,
+} from "@azure/core-rest-pipeline";
+import axios from "axios";
 import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
 import { AzureGetMonthCurrent } from "./AzureCost";
 
@@ -7,22 +14,47 @@ jest.mock("@azure/arm-costmanagement", () => ({
   CostManagementClient: jest.fn(),
 }));
 jest.mock("@azure/identity", () => ({ ClientSecretCredential: jest.fn() }));
+jest.mock("axios");
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
+
+function restError(
+  statusCode: number,
+  headers: Record<string, string> = {},
+): RestError {
+  const request = createPipelineRequest({
+    url: "https://management.azure.com/providers/Microsoft.CostManagement/query",
+  });
+  return new RestError(`HTTP ${statusCode}`, {
+    statusCode,
+    request,
+    response: {
+      request,
+      status: statusCode,
+      headers: createHttpHeaders(headers),
+    },
+  });
+}
 
 function retryableError(
   statusCode: number,
@@ -40,6 +72,7 @@ function retryableError(
 
 describe("AzureCost", () => {
   const fakeSpan = {} as unknown as Span;
+  const getTokenMock = jest.fn();
 
   beforeEach(() => {
     jest.useRealTimers();
@@ -48,6 +81,13 @@ describe("AzureCost", () => {
     process.env.AZURE_CLIENT_ID = "test-client";
     process.env.AZURE_CLIENT_SECRET = "test-secret";
     process.env.AZURE_SUBSCRIPTION_ID = "test-subscription";
+    getTokenMock.mockResolvedValue({
+      token: "access-token",
+      expiresOnTimestamp: Date.now() + 3600000,
+    });
+    jest.mocked(ClientSecretCredential).mockImplementation(
+      () => ({ getToken: getTokenMock }) as unknown as ClientSecretCredential,
+    );
   });
 
   describe("AzureGetMonthCurrent", () => {
@@ -76,6 +116,104 @@ describe("AzureCost", () => {
       });
     });
 
+    it("should disable the SDK retry policy so WithRetry is the only layer", async () => {
+      usageMock.mockResolvedValueOnce({ rows: [] });
+
+      await AzureGetMonthCurrent(fakeSpan);
+
+      expect(CostManagementClient).toHaveBeenCalledWith(expect.anything(), {
+        retryOptions: { maxRetries: 0 },
+      });
+    });
+
+    it("should follow nextLink and sum every page", async () => {
+      usageMock.mockResolvedValueOnce({
+        columns: [{ name: "PreTaxCost" }, { name: "ServiceName" }],
+        rows: [
+          [1.5, "Virtual Machines"],
+          [2.25, "Storage"],
+        ],
+        nextLink: "https://management.azure.com/next-page?$skiptoken=abc",
+      });
+      jest.mocked(axios.post).mockResolvedValueOnce({
+        data: {
+          columns: [{ name: "PreTaxCost" }, { name: "ServiceName" }],
+          rows: [
+            [3, "Virtual Machines"],
+            [4, "Networking"],
+          ],
+        },
+      });
+
+      await expect(AzureGetMonthCurrent(fakeSpan)).resolves.toEqual({
+        total: 10.75,
+        services: { "Virtual Machines": 4.5, Storage: 2.25, Networking: 4 },
+      });
+
+      expect(getTokenMock).toHaveBeenCalledWith(
+        "https://management.azure.com/.default",
+      );
+      expect(axios.post).toHaveBeenCalledWith(
+        "https://management.azure.com/next-page?$skiptoken=abc",
+        expect.any(Object),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer access-token",
+            "Content-Type": "application/json",
+          }),
+          timeout: COST_HTTP_TIMEOUT_MS,
+        }),
+      );
+    });
+
+    it("should stop at the page cap and log a warning", async () => {
+      const page = (pageNumber: number) => ({
+        columns: [{ name: "PreTaxCost" }, { name: "ServiceName" }],
+        rows: [[1, `Service${pageNumber}`]],
+        nextLink: `https://management.azure.com/next-page?$skiptoken=${pageNumber}`,
+      });
+      usageMock.mockResolvedValueOnce(page(0));
+      for (let pageNumber = 1; pageNumber <= 20; pageNumber++) {
+        jest.mocked(axios.post).mockResolvedValueOnce({
+          data: page(pageNumber),
+        });
+      }
+
+      const result = await AzureGetMonthCurrent(fakeSpan);
+
+      expect(usageMock).toHaveBeenCalledTimes(1);
+      expect(axios.post).toHaveBeenCalledTimes(19);
+      expect(Object.keys(result.services)).toHaveLength(20);
+      expect(mockLogger().warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Azure Cost Management query reached the 20-page cap",
+        ),
+        expect.anything(),
+      );
+    });
+
+    it("should reject a non-finite cost instead of storing NaN", async () => {
+      usageMock.mockResolvedValueOnce({
+        columns: [{ name: "PreTaxCost" }, { name: "ServiceName" }],
+        rows: [["not-a-number", "Virtual Machines"]],
+      });
+
+      await expect(AzureGetMonthCurrent(fakeSpan)).rejects.toThrow(
+        "Invalid Azure PreTaxCost: expected a finite number",
+      );
+    });
+
+    it("should reject a null cost instead of storing it", async () => {
+      usageMock.mockResolvedValueOnce({
+        columns: [{ name: "PreTaxCost" }, { name: "ServiceName" }],
+        rows: [[null, "Virtual Machines"]],
+      });
+
+      await expect(AzureGetMonthCurrent(fakeSpan)).rejects.toThrow(
+        "Invalid Azure PreTaxCost: expected a finite number",
+      );
+    });
+
     it("should set an HTTP request timeout on the cost query", async () => {
       usageMock.mockResolvedValueOnce({ rows: [] });
 
@@ -99,10 +237,10 @@ describe("AzureCost", () => {
       });
     });
 
-    it("should retry a 429 honoring the Retry-After header", async () => {
+    it("should retry a realistic 429 RestError honoring the Retry-After header", async () => {
       jest.useFakeTimers();
       usageMock
-        .mockRejectedValueOnce(retryableError(429, { "retry-after": "1" }))
+        .mockRejectedValueOnce(restError(429, { "retry-after": "1" }))
         .mockResolvedValueOnce({ rows: [] });
 
       const promise = AzureGetMonthCurrent(fakeSpan);

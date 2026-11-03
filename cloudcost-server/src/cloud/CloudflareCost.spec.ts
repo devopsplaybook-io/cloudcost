@@ -5,21 +5,27 @@ import { CloudflareGetMonthCurrent } from "./CloudflareCost";
 
 jest.mock("axios");
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("CloudflareCost", () => {
   const mockedAxios = jest.mocked(axios);
@@ -126,6 +132,64 @@ describe("CloudflareCost", () => {
       services: { "Zone Plan: Pro": 20 },
     });
     expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("should warn once when zone pagination exceeds the page cap", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "test-token";
+    process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";
+    mockedAxios.get
+      .mockResolvedValueOnce({ data: { result: [] } })
+      .mockResolvedValue({
+        data: { result: [], result_info: { total_pages: 150 } },
+      });
+
+    await expect(CloudflareGetMonthCurrent(fakeSpan)).resolves.toEqual({
+      total: 0,
+      services: {},
+    });
+
+    expect(mockedAxios.get).toHaveBeenCalledTimes(101);
+    expect(mockLogger().warn).toHaveBeenCalledTimes(1);
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Cloudflare zone pagination reached the 100-page cap",
+      ),
+      expect.anything(),
+    );
+  });
+
+  it("should reject a non-finite subscription price", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "test-token";
+    process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        result: [
+          {
+            state: "Active",
+            price: Number.NaN,
+            rate_plan: { description: "Workers Paid" },
+          },
+        ],
+      },
+    });
+
+    await expect(CloudflareGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Cloudflare subscription price: expected a finite number",
+    );
+  });
+
+  it("should reject a non-finite zone plan price", async () => {
+    process.env.CLOUDFLARE_API_TOKEN = "test-token";
+    process.env.CLOUDFLARE_ACCOUNT_ID = "account-1";
+    mockedAxios.get
+      .mockResolvedValueOnce({ data: { result: [] } })
+      .mockResolvedValueOnce({
+        data: { result: [{ plan: { name: "Pro", price: null } }] },
+      });
+
+    await expect(CloudflareGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Cloudflare zone plan price: expected a finite number",
+    );
   });
 
   it("should set a request timeout on the subscriptions call", async () => {
