@@ -128,7 +128,7 @@ All cost figures are month-to-date and expressed in USD, using the current UTC c
 - **AWS** — `UnblendedCost` from Cost Explorer, aggregated over all result pages.
 - **Azure** — `ActualCost` (`PreTaxCost`) from Cost Management.
 - **Google Cloud** — cost plus credits (net cost) from the BigQuery billing export, filtered on the current `invoice.month`.
-- **Alibaba Cloud** — pretax amount from the BSS account bill for the current billing cycle, aggregated over all pages.
+- **Alibaba Cloud** — pretax amount from the BSS account bill for the current billing cycle, aggregated over all pages. The BSS response must report USD (the international endpoint bills in USD); any other or mixed currency fails the fetch instead of mixing amounts into the USD totals.
 - **Cloudflare** — **list-price run-rate, not metered usage**: the sum of the active account subscription prices plus each zone's plan price. It represents the recurring monthly plan fees and does not include usage-based charges (e.g. Workers requests, R2 storage) or annual-plan discounts. Zone plans are counted in full even when a zone was added mid-month.
 - **GitHub** — month-to-date usage from the billing usage report, grouped by product and SKU. Usage billed to an enterprise is not included.
 
@@ -170,6 +170,8 @@ AWS credentials are resolved via the standard AWS SDK credential chain (environm
 | `ALIBABACLOUD_ACCESS_KEY_ID` | Alibaba Cloud access key ID     |               |
 | `ALIBABACLOUD_SECRET_KEY`    | Alibaba Cloud access key secret |               |
 | `ALIBABACLOUD_REGION_ID`     | Region ID for API calls         | `cn-hangzhou` |
+
+CloudCost reports every provider in USD. The Alibaba Cloud fetcher uses the international endpoint `business.ap-southeast-1.aliyuncs.com` and requires the BSS response to report `USD`. A response reporting any other currency (`CNY`, `JPY`, ...) or a mix of currencies fails the fetch with a clear error, and a response that omits the currency keeps the USD assumption but logs a warning. No currency conversion is performed.
 
 ### Google Cloud
 

@@ -2,7 +2,7 @@ import { Span } from "@opentelemetry/sdk-trace";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { WithRetry } from "../Retry";
-import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
+import { COST_HTTP_TIMEOUT_MS, ToFiniteNumber } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("MoonshotAICost");
 
@@ -48,12 +48,18 @@ export async function MoonshotAIGetBalance(
     const balances: MoonshotAIBalance[] = [];
 
     if (data?.data?.available_balance !== undefined) {
-      balances.push({
-        currency: "USD",
-        available_balance: parseFloat(
-          parseFloat(data.data.available_balance).toFixed(2),
-        ),
-      });
+      const balance = ToFiniteNumber(data.data.available_balance);
+      if (balance === undefined) {
+        logger.warn(
+          "Moonshot AI balance is missing or not a finite number; reporting it as unknown",
+          span,
+        );
+      } else {
+        balances.push({
+          currency: "USD",
+          available_balance: parseFloat(balance.toFixed(2)),
+        });
+      }
     }
 
     span.end();

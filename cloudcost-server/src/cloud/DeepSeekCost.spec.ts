@@ -5,21 +5,27 @@ import { DeepSeekGetBalance } from "./DeepSeekCost";
 
 jest.mock("axios");
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("DeepSeekCost", () => {
   const mockedAxios = jest.mocked(axios);
@@ -68,6 +74,39 @@ describe("DeepSeekCost", () => {
     mockedAxios.get.mockResolvedValueOnce({ data: { balance_infos: null } });
 
     await expect(DeepSeekGetBalance(fakeSpan)).resolves.toEqual([]);
+  });
+
+  it("should skip a non-finite balance and warn", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test";
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        balance_infos: [
+          { currency: "CNY", total_balance: "not-a-number" },
+          { currency: "USD", total_balance: "2.345" },
+        ],
+      },
+    });
+
+    await expect(DeepSeekGetBalance(fakeSpan)).resolves.toEqual([
+      { currency: "USD", total_balance: 2.35 },
+    ]);
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining("DeepSeek balance in CNY"),
+      expect.anything(),
+    );
+  });
+
+  it("should skip a null balance and warn", async () => {
+    process.env.DEEPSEEK_API_KEY = "sk-test";
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { balance_infos: [{ currency: "USD", total_balance: null }] },
+    });
+
+    await expect(DeepSeekGetBalance(fakeSpan)).resolves.toEqual([]);
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining("DeepSeek balance in USD"),
+      expect.anything(),
+    );
   });
 
   it("should re-throw API errors", async () => {

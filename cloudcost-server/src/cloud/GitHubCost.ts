@@ -6,6 +6,7 @@ import { WithRetry } from "../Retry";
 import {
   COST_HTTP_TIMEOUT_MS,
   CostBreakdownInterface,
+  RequireFiniteAmount,
 } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("GitHubCost");
@@ -84,7 +85,10 @@ export async function GitHubGetMonthCurrent(
     for (const item of response.data?.usageItems ?? []) {
       const service = [item.product, item.sku].filter(Boolean).join(" / ");
       const key = service || "unknown_service";
-      const amount = item.netAmount ?? 0;
+      const amount =
+        item.netAmount === undefined
+          ? 0
+          : RequireFiniteAmount(item.netAmount, "GitHub netAmount");
       services[key] = (services[key] || 0) + amount;
       total += amount;
     }

@@ -2,7 +2,7 @@ import { Span } from "@opentelemetry/sdk-trace";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { WithRetry } from "../Retry";
-import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
+import { COST_HTTP_TIMEOUT_MS, ToFiniteNumber } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("DeepSeekCost");
 
@@ -49,11 +49,18 @@ export async function DeepSeekGetBalance(
 
     if (data?.balance_infos && Array.isArray(data.balance_infos)) {
       for (const info of data.balance_infos) {
+        const currency = (info.currency as string) || "USD";
+        const balance = ToFiniteNumber(info.total_balance);
+        if (balance === undefined) {
+          logger.warn(
+            `DeepSeek balance in ${currency} is missing or not a finite number; reporting it as unknown`,
+            span,
+          );
+          continue;
+        }
         balances.push({
-          currency: (info.currency as string) || "USD",
-          total_balance: parseFloat(
-            parseFloat(info.total_balance || "0").toFixed(2),
-          ),
+          currency,
+          total_balance: parseFloat(balance.toFixed(2)),
         });
       }
     }

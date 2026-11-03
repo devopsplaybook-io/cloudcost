@@ -1,9 +1,15 @@
 import { Span } from "@opentelemetry/sdk-trace";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
 import BssOpenApi, * as $BssOpenApi from "@alicloud/bssopenapi20171214";
 import * as $OpenApi from "@alicloud/openapi-client";
-import { COST_HTTP_TIMEOUT_MS, CostBreakdownInterface } from "./CostBreakdownInterface";
+import {
+  COST_HTTP_TIMEOUT_MS,
+  CostBreakdownInterface,
+  RequireFiniteAmount,
+} from "./CostBreakdownInterface";
 import { GetUtcMonthWindow } from "./MonthWindow";
+
+const logger = OTelLogger().createModuleLogger("AlibabaCloudCost");
 
 // BSS OpenAPI defaults to 20 items per page and accepts up to 300.
 const PAGE_SIZE = 300;
@@ -14,6 +20,7 @@ interface AlibabaBillingItem {
   productCode?: string;
   pipCode?: string;
   pretaxAmount?: number;
+  currency?: string;
 }
 
 export async function AlibabaCloudGetMonthCurrent(
@@ -44,6 +51,7 @@ export async function AlibabaCloudGetMonthCurrent(
     // Every billing cycle can span several pages: aggregate all of them
     // instead of only the first (default-sized) page.
     const items: AlibabaBillingItem[] = [];
+    let reachedPageCap = false;
     for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
       const result = await client.queryAccountBill(
         new $BssOpenApi.QueryAccountBillRequest({
@@ -68,21 +76,60 @@ export async function AlibabaCloudGetMonthCurrent(
       ) {
         break;
       }
+      if (pageNum === MAX_PAGES) {
+        reachedPageCap = true;
+      }
+    }
+    if (reachedPageCap) {
+      logger.warn(
+        `Alibaba Cloud BSS pagination reached the ${MAX_PAGES}-page cap; results may be truncated`,
+        span,
+      );
     }
 
+    // CloudCost reports every provider in USD. The BSS response carries the
+    // billing currency; a different (or mixed) currency would silently corrupt
+    // the USD totals, so fail the fetch with a clear error instead.
+    const currencies = [
+      ...new Set(
+        items
+          .map((item) => item.currency)
+          .filter(
+            (currency): currency is string =>
+              typeof currency === "string" && currency !== "",
+          ),
+      ),
+    ];
+    const foreignCurrencies = currencies.filter((c) => c !== "USD");
+    if (foreignCurrencies.length > 0) {
+      throw new Error(
+        `Alibaba Cloud BSS reported costs in ${currencies.join(", ")}; CloudCost requires USD`,
+      );
+    }
+    if (items.length > 0 && currencies.length === 0) {
+      logger.warn(
+        "Alibaba Cloud BSS response did not report a currency; assuming USD",
+        span,
+      );
+    }
+
+    const amounts = items.map((item) =>
+      item.pretaxAmount === undefined
+        ? 0
+        : RequireFiniteAmount(item.pretaxAmount, "Alibaba Cloud pretaxAmount"),
+    );
+
     // Calculate total cost
-    let total = 0;
-    total = items.reduce((acc, item) => {
-      return acc + (item.pretaxAmount || 0);
-    }, 0);
-    total = parseFloat(total.toFixed(2));
+    const total = parseFloat(
+      amounts.reduce((acc, amount) => acc + amount, 0).toFixed(2),
+    );
 
     // Calculate service breakdown
     const services: Record<string, number> = {};
-    items.forEach((item) => {
+    items.forEach((item, index) => {
       const serviceName =
         item.productName || item.productCode || item.pipCode || "unknown_service";
-      const serviceCost = item.pretaxAmount || 0;
+      const serviceCost = amounts[index];
       services[serviceName] = parseFloat(
         ((services[serviceName] || 0) + serviceCost).toFixed(2),
       );

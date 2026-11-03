@@ -96,6 +96,26 @@ describe("GoogleCloudCost", () => {
     });
   });
 
+  it("should reject a null total_cost", async () => {
+    queryMock.mockResolvedValueOnce([
+      [{ service_name: "Compute Engine", total_cost: null }],
+    ]);
+
+    await expect(GoogleCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Google Cloud total_cost: expected a finite number",
+    );
+  });
+
+  it("should reject a non-numeric total_cost", async () => {
+    queryMock.mockResolvedValueOnce([
+      [{ service_name: "Compute Engine", total_cost: "not-a-number" }],
+    ]);
+
+    await expect(GoogleCloudGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid Google Cloud total_cost: expected a finite number",
+    );
+  });
+
   it("should re-throw query errors", async () => {
     queryMock.mockRejectedValueOnce(new Error("Access Denied"));
 

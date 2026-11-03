@@ -5,6 +5,7 @@ import { WithRetry } from "../Retry";
 import {
   COST_HTTP_TIMEOUT_MS,
   CostBreakdownInterface,
+  RequireFiniteAmount,
 } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("CloudflareCost");
@@ -76,7 +77,10 @@ export async function CloudflareGetMonthCurrent(
     const accountSubs: Subscription[] = subResponse.data?.result ?? [];
     for (const sub of accountSubs) {
       if (sub.state === "Cancelled" || sub.state === "Expired") continue;
-      const price = sub.price ?? 0;
+      const price =
+        sub.price === undefined
+          ? 0
+          : RequireFiniteAmount(sub.price, "Cloudflare subscription price");
       if (price === 0) continue;
       const name =
         sub.rate_plan?.description || sub.rate_plan?.id || "unknown_service";
@@ -88,6 +92,7 @@ export async function CloudflareGetMonthCurrent(
     // underreported.
     let page = 1;
     let totalPages = 1;
+    let capWarned = false;
     while (page <= totalPages) {
       const zonesResponse = await getWithRetry(
         `${CLOUDFLARE_API_BASE}/zones`,
@@ -105,7 +110,13 @@ export async function CloudflareGetMonthCurrent(
       const zones: Zone[] = zonesResponse.data?.result ?? [];
       for (const zone of zones) {
         const planName = zone.plan?.name;
-        const planPrice = zone.plan?.price ?? 0;
+        const planPrice =
+          zone.plan?.price === undefined
+            ? 0
+            : RequireFiniteAmount(
+                zone.plan.price,
+                "Cloudflare zone plan price",
+              );
         if (!planName || planPrice === 0) continue;
         const key = `Zone Plan: ${planName}`;
         services[key] = parseFloat(
@@ -113,10 +124,19 @@ export async function CloudflareGetMonthCurrent(
         );
       }
       const resultInfo = zonesResponse.data?.result_info;
-      totalPages =
+      const reportedPages =
         typeof resultInfo?.total_pages === "number" ? resultInfo.total_pages : 1;
-      if (totalPages > ZONES_MAX_PAGES) {
+      if (reportedPages > ZONES_MAX_PAGES) {
+        if (!capWarned) {
+          logger.warn(
+            `Cloudflare zone pagination reached the ${ZONES_MAX_PAGES}-page cap; results may be truncated`,
+            span,
+          );
+          capWarned = true;
+        }
         totalPages = ZONES_MAX_PAGES;
+      } else {
+        totalPages = reportedPages;
       }
       page += 1;
     }

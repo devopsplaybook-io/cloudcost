@@ -64,10 +64,68 @@ describe("Retry", () => {
       ).toBe(3000);
     });
 
+    it("should honor an HTTP-date Retry-After value", () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-11-03T10:00:00Z"));
+
+      expect(
+        GetRetryDelayMs(
+          httpError(429, { "retry-after": "Tue, 03 Nov 2026 10:00:07 GMT" }),
+          1,
+        ),
+      ).toBe(7000);
+    });
+
+    it("should treat a past HTTP-date Retry-After value as no delay", () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-11-03T10:00:00Z"));
+
+      expect(
+        GetRetryDelayMs(
+          httpError(429, { "retry-after": "Tue, 03 Nov 2026 09:59:00 GMT" }),
+          1,
+        ),
+      ).toBe(0);
+    });
+
+    it("should fall back to backoff for an invalid Retry-After value", () => {
+      jest.spyOn(Math, "random").mockReturnValue(0);
+
+      expect(
+        GetRetryDelayMs(httpError(429, { "retry-after": "soon" }), 1),
+      ).toBe(2000);
+    });
+
     it("should cap the server-provided delay at 120 s", () => {
       expect(
         GetRetryDelayMs(httpError(429, { "retry-after": "600" }), 1),
       ).toBe(120000);
+    });
+
+    it("should retry a 408 response", () => {
+      expect(GetRetryDelayMs(httpError(408), 1)).not.toBeNull();
+    });
+
+    it("should retry a 403 response carrying Retry-After in seconds", () => {
+      expect(
+        GetRetryDelayMs(httpError(403, { "retry-after": "2" }), 1),
+      ).toBe(2000);
+    });
+
+    it("should retry a 403 response carrying an HTTP-date Retry-After", () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date("2026-11-03T10:00:00Z"));
+
+      expect(
+        GetRetryDelayMs(
+          httpError(403, { "retry-after": "Tue, 03 Nov 2026 10:00:05 GMT" }),
+          1,
+        ),
+      ).toBe(5000);
+    });
+
+    it("should not retry a 403 without Retry-After", () => {
+      expect(GetRetryDelayMs(httpError(403), 1)).toBeNull();
     });
 
     it("should apply an exponential backoff with jitter otherwise", () => {

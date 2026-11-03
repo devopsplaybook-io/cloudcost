@@ -2,7 +2,7 @@ import { Span } from "@opentelemetry/sdk-trace";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { WithRetry } from "../Retry";
-import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
+import { COST_HTTP_TIMEOUT_MS, ToFiniteNumber } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("ZAICost");
 
@@ -61,12 +61,18 @@ export async function ZAIGetBalance(context: Span): Promise<ZAIBalance[]> {
     const balances: ZAIBalance[] = [];
 
     if (data?.data?.availableBalance !== undefined) {
-      balances.push({
-        currency: "USD",
-        available_balance: parseFloat(
-          parseFloat(data.data.availableBalance).toFixed(2),
-        ),
-      });
+      const balance = ToFiniteNumber(data.data.availableBalance);
+      if (balance === undefined) {
+        logger.warn(
+          "Z.AI balance is missing or not a finite number; reporting it as unknown",
+          span,
+        );
+      } else {
+        balances.push({
+          currency: "USD",
+          available_balance: parseFloat(balance.toFixed(2)),
+        });
+      }
     }
 
     span.end();

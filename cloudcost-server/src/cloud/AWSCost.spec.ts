@@ -11,21 +11,27 @@ jest.mock("@aws-sdk/client-cost-explorer", () => ({
   Granularity: { MONTHLY: "MONTHLY" },
 }));
 
-jest.mock("../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
+jest.mock("../OTelContext", () => {
+  const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return {
+    mockLogger: moduleLogger,
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({
+      startSpan: () => ({
+        end: jest.fn(),
+        setStatus: jest.fn(),
+      }),
     }),
-  }),
-  OTelTracer: () => ({
-    startSpan: () => ({
-      end: jest.fn(),
-      setStatus: jest.fn(),
-    }),
-  }),
-}));
+  };
+});
+
+function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
+    }
+  ).mockLogger;
+}
 
 describe("AWSCost", () => {
   const sendMock = jest.fn();
@@ -116,6 +122,42 @@ describe("AWSCost", () => {
     expect(GetCostAndUsageCommand).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ NextPageToken: "page-2" }),
+    );
+  });
+
+  it("should warn when pagination reaches the page cap", async () => {
+    sendMock.mockResolvedValue({ NextPageToken: "more" });
+
+    await expect(AWSGetMonthCurrent(fakeSpan)).resolves.toEqual({
+      total: 0,
+      services: {},
+    });
+
+    expect(sendMock).toHaveBeenCalledTimes(50);
+    expect(mockLogger().warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "AWS Cost Explorer pagination reached the 50-page cap",
+      ),
+      expect.anything(),
+    );
+  });
+
+  it("should reject a non-finite amount", async () => {
+    sendMock.mockResolvedValueOnce({
+      ResultsByTime: [
+        {
+          Groups: [
+            {
+              Keys: ["Amazon S3"],
+              Metrics: { UnblendedCost: { Amount: "not-a-number" } },
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(AWSGetMonthCurrent(fakeSpan)).rejects.toThrow(
+      "Invalid AWS UnblendedCost.Amount: expected a finite number",
     );
   });
 

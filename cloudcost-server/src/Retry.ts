@@ -67,10 +67,7 @@ function getResponseHeader(err: unknown, name: string): string | undefined {
     : String(rawValue);
 }
 
-function parseDelayMs(
-  value: string | undefined,
-  multiplier: number,
-): number | null {
+function parseNumericDelayMs(value: string | undefined): number | null {
   if (value === undefined) {
     return null;
   }
@@ -78,20 +75,49 @@ function parseDelayMs(
   if (!Number.isFinite(parsed) || parsed < 0) {
     return null;
   }
-  return Math.min(parsed * multiplier, MAX_RETRY_DELAY_MS);
+  return Math.min(parsed, MAX_RETRY_DELAY_MS);
 }
 
 /**
- * Delay before the next attempt when the error is retryable (HTTP 429, 5xx or
+ * Parse a `Retry-After` value, which RFC 7231 allows to be either
+ * delta-seconds or an HTTP-date. Returns `null` for an invalid value so the
+ * caller falls back to exponential backoff.
+ */
+function parseRetryAfterMs(value: string | undefined): number | null {
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const deltaSeconds = Number(trimmed);
+  if (Number.isFinite(deltaSeconds) && deltaSeconds >= 0) {
+    return Math.min(deltaSeconds * 1000, MAX_RETRY_DELAY_MS);
+  }
+  const dateMs = Date.parse(trimmed);
+  if (!Number.isFinite(dateMs)) {
+    return null;
+  }
+  return Math.min(Math.max(dateMs - Date.now(), 0), MAX_RETRY_DELAY_MS);
+}
+
+/**
+ * Delay before the next attempt when the error is retryable (HTTP 408, 429,
+ * 5xx, HTTP 403 carrying a `Retry-After` header for secondary rate limits, or
  * a transient network failure); `null` when the error should not be retried.
- * Honors `x-ms-retry-after-ms` and `Retry-After` (both capped at 120 s),
- * otherwise falls back to an exponential backoff (2 s, 4 s, 8 s) with jitter.
+ * Honors `x-ms-retry-after-ms` (milliseconds) and `Retry-After`
+ * (delta-seconds or HTTP-date), both capped at 120 s; otherwise falls back to
+ * an exponential backoff (2 s, 4 s, 8 s) with jitter.
  */
 export function GetRetryDelayMs(err: unknown, attempt: number): number | null {
   const statusCode = GetErrorStatusCode(err);
+  const retryAfterHeader = getResponseHeader(err, "retry-after");
   const isRetryableStatus =
+    statusCode === 408 ||
     statusCode === 429 ||
-    (statusCode !== undefined && statusCode >= 500 && statusCode < 600);
+    (statusCode !== undefined && statusCode >= 500 && statusCode < 600) ||
+    (statusCode === 403 && retryAfterHeader !== undefined);
   const errorCode = getErrorCode(err);
   const isRetryableNetworkError =
     statusCode === undefined &&
@@ -101,14 +127,13 @@ export function GetRetryDelayMs(err: unknown, attempt: number): number | null {
     return null;
   }
 
-  const retryAfterMs = parseDelayMs(
+  const retryAfterMs = parseNumericDelayMs(
     getResponseHeader(err, "x-ms-retry-after-ms"),
-    1,
   );
   if (retryAfterMs !== null) {
     return retryAfterMs;
   }
-  const retryAfter = parseDelayMs(getResponseHeader(err, "retry-after"), 1000);
+  const retryAfter = parseRetryAfterMs(retryAfterHeader);
   if (retryAfter !== null) {
     return retryAfter;
   }
