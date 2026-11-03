@@ -125,11 +125,17 @@ export async function CostCollectorFetch(): Promise<void> {
     outcomes.set("zai", false);
     tasks.push(
       ZAIGetBalance(span)
-        .then((balances) => {
+        .then((result) => {
+          if (result.error) {
+            outcomes.set("zai", false);
+            RecordFetchFailure("zai", new Date(), result.error);
+            logger.warn(`Error fetching Z.AI balance: ${result.error}`, span);
+            return;
+          }
           outcomes.set("zai", true);
           RecordFetchSuccess("zai", new Date());
           ResetBalances(zaiBalances);
-          for (const b of balances) {
+          for (const b of result.balances) {
             zaiBalances[b.currency] = b.available_balance;
           }
         })
@@ -149,11 +155,17 @@ export async function CostCollectorFetch(): Promise<void> {
     outcomes.set("jev", false);
     tasks.push(
       JevGetBalance(span)
-        .then((balances) => {
+        .then((result) => {
+          if (result.error) {
+            outcomes.set("jev", false);
+            RecordFetchFailure("jev", new Date(), result.error);
+            logger.warn(`Error fetching Jev balance: ${result.error}`, span);
+            return;
+          }
           outcomes.set("jev", true);
           RecordFetchSuccess("jev", new Date());
           ResetBalances(jevBalances);
-          for (const b of balances) {
+          for (const b of result.balances) {
             jevBalances[b.currency] = b.available_balance;
           }
         })

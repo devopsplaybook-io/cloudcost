@@ -3,6 +3,17 @@ export interface CostBreakdownInterface {
   services: Record<string, number>;
 }
 
+/**
+ * Result of an LLM balance fetch. A provider business/config error (e.g. an
+ * HTTP-200 error envelope returned for an invalid key) is reported as `error`
+ * instead of throwing: the fetch cycle stays non-fatal while the collector
+ * records a failed fetch and keeps the last known balance.
+ */
+export interface BalanceFetchResult<T> {
+  balances: T[];
+  error?: string;
+}
+
 // Per-request timeout for provider HTTP calls: a hung connection must not
 // stall the whole fetch cycle.
 export const COST_HTTP_TIMEOUT_MS = 30000;

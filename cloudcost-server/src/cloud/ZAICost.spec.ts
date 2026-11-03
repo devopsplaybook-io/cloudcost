@@ -60,9 +60,12 @@ describe("ZAICost", () => {
         },
       });
 
-      const balances = await ZAIGetBalance(fakeSpan);
+      const result = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([{ currency: "USD", available_balance: 9.92 }]);
+      expect(result.balances).toEqual([
+        { currency: "USD", available_balance: 9.92 },
+      ]);
+      expect(result.error).toBeUndefined();
       expect(mockedAxios.get).toHaveBeenCalledWith(
         "https://api.z.ai/api/biz/account/query-customer-account-report",
         expect.objectContaining({
@@ -74,7 +77,7 @@ describe("ZAICost", () => {
       );
     });
 
-    it("should return an empty list when the API responds with success=false", async () => {
+    it("should return an error result when the API responds with success=false", async () => {
       process.env.ZAI_API_KEY = "sk-test";
       mockedAxios.get.mockResolvedValueOnce({
         data: {
@@ -84,20 +87,24 @@ describe("ZAICost", () => {
         },
       });
 
-      const balances = await ZAIGetBalance(fakeSpan);
+      const result = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "Z.AI account API returned success=false: Authentication Failed",
+      );
     });
 
-    it("should return an empty list when the response has no balance", async () => {
+    it("should return an empty result without an error when the response has no balance", async () => {
       process.env.ZAI_API_KEY = "sk-test";
       mockedAxios.get.mockResolvedValueOnce({
         data: { code: 200, msg: "Operation successful", success: true },
       });
 
-      const balances = await ZAIGetBalance(fakeSpan);
+      const result = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toBeUndefined();
     });
 
     it("should report a non-finite balance as unknown and warn", async () => {
@@ -111,9 +118,10 @@ describe("ZAICost", () => {
         },
       });
 
-      const balances = await ZAIGetBalance(fakeSpan);
+      const result = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toBeUndefined();
       expect(mockLogger().warn).toHaveBeenCalledWith(
         expect.stringContaining("Z.AI balance is missing"),
         expect.anything(),
@@ -131,9 +139,10 @@ describe("ZAICost", () => {
         },
       });
 
-      const balances = await ZAIGetBalance(fakeSpan);
+      const result = await ZAIGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toBeUndefined();
       expect(mockLogger().warn).toHaveBeenCalledWith(
         expect.stringContaining("Z.AI balance is missing"),
         expect.anything(),

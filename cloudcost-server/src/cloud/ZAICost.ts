@@ -2,7 +2,11 @@ import { Span } from "@opentelemetry/sdk-trace";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { WithRetry } from "../Retry";
-import { COST_HTTP_TIMEOUT_MS, ToFiniteNumber } from "./CostBreakdownInterface";
+import {
+  COST_HTTP_TIMEOUT_MS,
+  ToFiniteNumber,
+  BalanceFetchResult,
+} from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("ZAICost");
 
@@ -13,7 +17,9 @@ export interface ZAIBalance {
   available_balance: number;
 }
 
-export async function ZAIGetBalance(context: Span): Promise<ZAIBalance[]> {
+export async function ZAIGetBalance(
+  context: Span,
+): Promise<BalanceFetchResult<ZAIBalance>> {
   const span = OTelTracer().startSpan("ZAIGetBalance", context);
 
   try {
@@ -49,13 +55,15 @@ export async function ZAIGetBalance(context: Span): Promise<ZAIBalance[]> {
     // The account API answers HTTP 200 with success=false on business errors
     // (e.g. code 1000 "Authentication Failed" for an invalid key), so the
     // envelope must be checked before reading the balance. Such errors are
-    // non-fatal: log a warning and return empty instead of throwing, so the
-    // fetcher stays non-fatal like the other providers.
+    // non-fatal: report a config error and return empty instead of throwing,
+    // so the fetcher stays non-fatal like the other providers.
     if (data?.success !== true || data?.code !== 200) {
       const msg = data?.msg || "invalid response";
-      logger.warn(`Z.AI account API returned success=false: ${msg}`, span);
+      const error = `Z.AI account API returned success=false: ${msg}`;
+      logger.warn(error, span);
+      span.setStatus({ code: 2, message: error });
       span.end();
-      return [];
+      return { balances: [], error };
     }
 
     const balances: ZAIBalance[] = [];
@@ -79,7 +87,7 @@ export async function ZAIGetBalance(context: Span): Promise<ZAIBalance[]> {
     for (const b of balances) {
       logger.info(`Z.AI balance: ${b.available_balance} ${b.currency}`, span);
     }
-    return balances;
+    return { balances };
   } catch (err) {
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();

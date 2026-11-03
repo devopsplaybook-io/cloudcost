@@ -71,6 +71,7 @@ jest.mock("./Config", () => {
     COST_NOTIFICATION_THRESHOLD: 10,
     COST_BUDGET_MONTHLY_USD: 0,
     COST_LLM_BALANCE_ALERT_USD: 5,
+    COST_LLM_BALANCE_ALERT_CNY: 5,
     reload: jest.fn(),
     logEffectiveConfiguration: jest.fn(),
   };
@@ -140,6 +141,7 @@ interface MockConfig {
   COST_NOTIFICATION_THRESHOLD: number;
   COST_BUDGET_MONTHLY_USD: number;
   COST_LLM_BALANCE_ALERT_USD: number;
+  COST_LLM_BALANCE_ALERT_CNY: number;
   reload: jest.Mock;
   logEffectiveConfiguration: jest.Mock;
 }
@@ -190,6 +192,7 @@ describe("Start", () => {
     mockConfig.COST_NOTIFICATION_THRESHOLD = 10;
     mockConfig.COST_BUDGET_MONTHLY_USD = 0;
     mockConfig.COST_LLM_BALANCE_ALERT_USD = 5;
+    mockConfig.COST_LLM_BALANCE_ALERT_CNY = 5;
     mockConfig.reload.mockResolvedValue(undefined);
     jest.mocked(CostCollectorFetch).mockResolvedValue(undefined);
     jest.mocked(NotificationCheckThreshold).mockResolvedValue(undefined);
@@ -370,6 +373,21 @@ describe("Start", () => {
     expect(NotificationResetThreshold).toHaveBeenCalled();
     expect(NotificationResetBudget).toHaveBeenCalled();
     expect(NotificationResetLLMBalances).toHaveBeenCalled();
+  });
+
+  it("should reset the LLM alert baseline when only the CNY threshold changes on reload", async () => {
+    await Start();
+    const watcherCallback = jest.mocked(watchFile).mock
+      .calls[0][1] as () => void;
+    jest.mocked(NotificationResetLLMBalances).mockClear();
+
+    watcherCallback();
+    mockConfig.COST_LLM_BALANCE_ALERT_CNY = 2;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(NotificationResetLLMBalances).toHaveBeenCalled();
+    expect(NotificationResetThreshold).not.toHaveBeenCalled();
+    expect(NotificationResetBudget).not.toHaveBeenCalled();
   });
 
   it("should warn about every startup-only setting changed by a reload", async () => {

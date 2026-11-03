@@ -165,7 +165,8 @@ export async function Start(): Promise<void> {
     const previous = {
       threshold: config.COST_NOTIFICATION_THRESHOLD,
       budget: config.COST_BUDGET_MONTHLY_USD,
-      llmBalance: config.COST_LLM_BALANCE_ALERT_USD,
+      llmBalanceUsd: config.COST_LLM_BALANCE_ALERT_USD,
+      llmBalanceCny: config.COST_LLM_BALANCE_ALERT_CNY,
       notificationsApi: config.NOTIFICATIONS_API,
       notificationsToken: config.NOTIFICATIONS_TOKEN,
       startupOnly: STARTUP_ONLY_SETTINGS.map(
@@ -188,10 +189,13 @@ export async function Start(): Promise<void> {
             "Monthly budget changed: budget and forecast alert baselines reset",
           );
         }
-        if (config.COST_LLM_BALANCE_ALERT_USD !== previous.llmBalance) {
+        if (
+          config.COST_LLM_BALANCE_ALERT_USD !== previous.llmBalanceUsd ||
+          config.COST_LLM_BALANCE_ALERT_CNY !== previous.llmBalanceCny
+        ) {
           NotificationResetLLMBalances();
           logger.info(
-            "LLM balance alert threshold changed: alert baseline reset",
+            "LLM balance alert thresholds changed: alert baseline reset",
           );
         }
         if (

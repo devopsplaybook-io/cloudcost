@@ -15,6 +15,7 @@ describe("Config", () => {
     delete process.env.COST_NOTIFICATION_SUMMARY_SCHEDULE;
     delete process.env.COST_NOTIFICATION_THRESHOLD;
     delete process.env.COST_LLM_BALANCE_ALERT_USD;
+    delete process.env.COST_LLM_BALANCE_ALERT_CNY;
     delete process.env.COST_BUDGET_MONTHLY_USD;
     delete process.env.COST_FETCH_FAILURE_ALERT_THRESHOLD;
     delete process.env.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS;
@@ -53,6 +54,7 @@ describe("Config", () => {
       expect(config.GITHUB_ACCOUNT).toBe("");
       expect(config.OTEL_BY_CLOUD).toBe(true);
       expect(config.COST_LLM_BALANCE_ALERT_USD).toBe(5);
+      expect(config.COST_LLM_BALANCE_ALERT_CNY).toBe(5);
       expect(config.COST_BUDGET_MONTHLY_USD).toBe(0);
       expect(config.COST_FETCH_FAILURE_ALERT_THRESHOLD).toBe(3);
     });
@@ -102,6 +104,7 @@ describe("Config", () => {
     it("should prioritize environment variables over config file", async () => {
       process.env.COST_NOTIFICATION_THRESHOLD = "25";
       process.env.COST_LLM_BALANCE_ALERT_USD = "7";
+      process.env.COST_LLM_BALANCE_ALERT_CNY = "9";
       process.env.COST_BUDGET_MONTHLY_USD = "35";
       process.env.COST_FETCH_FAILURE_ALERT_THRESHOLD = "7";
       process.env.COST_ENABLED_AWS = "false";
@@ -112,6 +115,7 @@ describe("Config", () => {
       mockedFse.readJson.mockResolvedValueOnce({
         COST_NOTIFICATION_THRESHOLD: 5,
         COST_LLM_BALANCE_ALERT_USD: 3,
+        COST_LLM_BALANCE_ALERT_CNY: 4,
         COST_BUDGET_MONTHLY_USD: 12,
         COST_FETCH_FAILURE_ALERT_THRESHOLD: 2,
         COST_ENABLED_AWS: true,
@@ -125,6 +129,7 @@ describe("Config", () => {
 
       expect(config.COST_NOTIFICATION_THRESHOLD).toBe(25);
       expect(config.COST_LLM_BALANCE_ALERT_USD).toBe(7);
+      expect(config.COST_LLM_BALANCE_ALERT_CNY).toBe(9);
       expect(config.COST_BUDGET_MONTHLY_USD).toBe(35);
       expect(config.COST_FETCH_FAILURE_ALERT_THRESHOLD).toBe(7);
       expect(config.COST_ENABLED_AWS).toBe(false);

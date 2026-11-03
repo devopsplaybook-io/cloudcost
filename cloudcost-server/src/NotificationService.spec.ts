@@ -260,10 +260,51 @@ describe("NotificationService", () => {
       await NotificationSendSummary();
 
       const body = client.info.mock.calls[0][1] as string;
-      expect(body).toContain("| deepseek | - | 5.68 |");
-      expect(body).toContain("| zai (last fetch failed) | - | - |");
+      expect(body).toContain("| deepseek | 0.00 | 5.68 |");
+      expect(body).toContain("| zai (last fetch failed) | - | 0.00 |");
       expect(body).toContain("| jev (no successful fetch yet) | - | 2.00 |");
-      expect(body).toContain("| **Total** | - | **7.68** |");
+      expect(body).toContain("| **Total** | **0.00** | **7.68** |");
+    });
+
+    it("should render a known zero as 0.00 and an unknown currency as -", async () => {
+      const client = givenNotificationsClient(true);
+      deepseekBalances.CNY = 0;
+      deepseekBalances.USD = undefined;
+      zaiBalances.USD = undefined;
+
+      const config = new Config();
+      config.COST_ENABLED_DEEPSEEK = true;
+      config.COST_ENABLED_ZAI = true;
+      NotificationInit(config);
+      RecordFetchSuccess("deepseek", new Date());
+      RecordFetchSuccess("zai", new Date());
+
+      await NotificationSendSummary();
+
+      const body = client.info.mock.calls[0][1] as string;
+      expect(body).toContain("| deepseek | 0.00 | - |");
+      expect(body).toContain("| zai | - | - |");
+      expect(body).toContain("| **Total** | **0.00** | - |");
+    });
+
+    it("should retry the summary once when the first delivery fails", async () => {
+      const client = givenNotificationsClient(true);
+      client.info.mockResolvedValueOnce(null);
+      NotificationInit(new Config());
+
+      await NotificationSendSummary();
+
+      expect(client.info).toHaveBeenCalledTimes(2);
+    });
+
+    it("should give up after two failed summary delivery attempts", async () => {
+      const client = givenNotificationsClient(true);
+      client.info.mockResolvedValue(null);
+      NotificationInit(new Config());
+
+      await NotificationSendSummary();
+
+      expect(client.info).toHaveBeenCalledTimes(2);
     });
 
     it("should only include enabled providers", async () => {
@@ -549,7 +590,7 @@ describe("NotificationService", () => {
       expect(client.error).toHaveBeenCalledTimes(1);
       expect(client.error).toHaveBeenCalledWith(
         "LLM credit depleted: jev",
-        "jev remaining credit is empty ($0.00 USD).\n\n## LLM remaining credits\n\n| Provider | USD |\n| --- |\n| jev | - |\n| **Total** | - |",
+        "jev remaining credit is empty ($0.00 USD).\n\n## LLM remaining credits\n\n| Provider | USD |\n| --- |\n| jev | 0.00 |\n| **Total** | **0.00** |",
         "cloudcost",
       );
       expect(client.warning).not.toHaveBeenCalled();
@@ -660,6 +701,135 @@ describe("NotificationService", () => {
         expect.stringContaining("| zai |"),
         "cloudcost",
       );
+    });
+
+    describe("per-currency evaluation", () => {
+      function givenDeepSeekConfig(): Config {
+        const config = new Config();
+        config.COST_ENABLED_DEEPSEEK = true;
+        NotificationInit(config);
+        return config;
+      }
+
+      it("should alert on a CNY depletion while USD stays independent", async () => {
+        const client = givenNotificationsClient(true);
+        givenDeepSeekConfig();
+        deepseekBalances.CNY = 10;
+        deepseekBalances.USD = 10;
+        await NotificationCheckLLMBalances();
+        expect(client.warning).not.toHaveBeenCalled();
+
+        deepseekBalances.CNY = 2;
+        await NotificationCheckLLMBalances();
+
+        expect(client.warning).toHaveBeenCalledTimes(1);
+        expect(client.warning).toHaveBeenCalledWith(
+          "LLM credit low: deepseek (CNY)",
+          expect.stringContaining(
+            "deepseek remaining credit dropped below the low-credit alert threshold (5.00 CNY)",
+          ),
+          "cloudcost",
+        );
+        const body = client.warning.mock.calls[0][1] as string;
+        expect(body).toContain("| deepseek | 2.00 | 10.00 |");
+        expect(body).toContain("| **Total** | **2.00** | **10.00** |");
+      });
+
+      it("should not repeat a CNY warning and escalate to an error on depletion", async () => {
+        const client = givenNotificationsClient(true);
+        givenDeepSeekConfig();
+        deepseekBalances.CNY = 10;
+        deepseekBalances.USD = 10;
+        await NotificationCheckLLMBalances();
+
+        deepseekBalances.CNY = 2;
+        await NotificationCheckLLMBalances();
+        expect(client.warning).toHaveBeenCalledTimes(1);
+
+        deepseekBalances.CNY = 1;
+        await NotificationCheckLLMBalances();
+        expect(client.warning).toHaveBeenCalledTimes(1);
+
+        deepseekBalances.CNY = 0;
+        await NotificationCheckLLMBalances();
+
+        expect(client.error).toHaveBeenCalledTimes(1);
+        expect(client.error).toHaveBeenCalledWith(
+          "LLM credit depleted: deepseek (CNY)",
+          expect.stringContaining(
+            "deepseek remaining credit is empty (0.00 CNY)",
+          ),
+          "cloudcost",
+        );
+        expect(client.warning).toHaveBeenCalledTimes(1);
+      });
+
+      it("should send one notification per currency when both cross in the same check", async () => {
+        const client = givenNotificationsClient(true);
+        givenDeepSeekConfig();
+        deepseekBalances.CNY = 10;
+        deepseekBalances.USD = 10;
+        await NotificationCheckLLMBalances();
+
+        deepseekBalances.CNY = 2;
+        deepseekBalances.USD = 0;
+        await NotificationCheckLLMBalances();
+
+        expect(client.warning).toHaveBeenCalledTimes(1);
+        expect(client.warning).toHaveBeenCalledWith(
+          "LLM credit low: deepseek (CNY)",
+          expect.any(String),
+          "cloudcost",
+        );
+        expect(client.error).toHaveBeenCalledTimes(1);
+        expect(client.error).toHaveBeenCalledWith(
+          "LLM credit depleted: deepseek",
+          expect.any(String),
+          "cloudcost",
+        );
+      });
+
+      it("should apply the CNY threshold independently of the USD threshold", async () => {
+        const client = givenNotificationsClient(true);
+        const config = givenDeepSeekConfig();
+        config.COST_LLM_BALANCE_ALERT_CNY = 1;
+        deepseekBalances.CNY = 10;
+        deepseekBalances.USD = 10;
+        await NotificationCheckLLMBalances();
+
+        // CNY 2 is above its custom threshold of 1; USD 2 is below the default
+        deepseekBalances.CNY = 2;
+        deepseekBalances.USD = 2;
+        await NotificationCheckLLMBalances();
+
+        expect(client.warning).toHaveBeenCalledTimes(1);
+        expect(client.warning).toHaveBeenCalledWith(
+          "LLM credit low: deepseek",
+          expect.any(String),
+          "cloudcost",
+        );
+      });
+
+      it("should disable the CNY alert only when its threshold is 0", async () => {
+        const client = givenNotificationsClient(true);
+        const config = givenDeepSeekConfig();
+        config.COST_LLM_BALANCE_ALERT_CNY = 0;
+        deepseekBalances.CNY = 10;
+        deepseekBalances.USD = 10;
+        await NotificationCheckLLMBalances();
+
+        deepseekBalances.CNY = 0;
+        deepseekBalances.USD = 2;
+        await NotificationCheckLLMBalances();
+
+        expect(client.warning).toHaveBeenCalledTimes(1);
+        expect(client.warning).toHaveBeenCalledWith(
+          "LLM credit low: deepseek",
+          expect.any(String),
+          "cloudcost",
+        );
+        expect(client.error).not.toHaveBeenCalled();
+      });
     });
   });
 
