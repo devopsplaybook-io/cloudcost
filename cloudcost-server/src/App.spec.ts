@@ -25,6 +25,7 @@ describe("App", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   function loadApp(): void {
@@ -52,8 +53,11 @@ describe("App", () => {
     expect(Start).toHaveBeenCalled();
   });
 
-  it("should log a fatal error when startup rejects instead of crashing", async () => {
+  it("should flush telemetry and exit with code 1 when startup rejects", async () => {
     jest.mocked(Start).mockRejectedValue(new Error("boom"));
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
 
     loadApp();
     await new Promise((resolve) => setImmediate(resolve));
@@ -62,6 +66,51 @@ describe("App", () => {
       "Fatal error during startup",
       expect.any(Error),
     );
+    expect(Stop).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+  });
+
+  it("should still exit with code 1 when the flush after a failed startup rejects", async () => {
+    jest.mocked(Start).mockRejectedValue(new Error("boom"));
+    jest.mocked(Stop).mockRejectedValue(new Error("flush boom"));
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    loadApp();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Error while flushing telemetry after failed startup",
+      expect.any(Error),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+  });
+
+  it("should exit with code 1 after the bounded flush when Stop never resolves", async () => {
+    jest.useFakeTimers();
+    jest.mocked(Start).mockRejectedValue(new Error("boom"));
+    jest.mocked(Stop).mockReturnValue(new Promise<void>(() => {}));
+    const exitSpy = jest
+      .spyOn(process, "exit")
+      .mockImplementation((() => undefined) as never);
+
+    loadApp();
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(4999);
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(1);
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
   });
 
   it("should register an unhandledRejection guard that logs instead of crashing", () => {

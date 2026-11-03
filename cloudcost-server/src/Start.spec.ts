@@ -1,4 +1,4 @@
-import { unwatchFile, watchFile } from "fs-extra";
+import { unwatchFile, watchFile, writeFile } from "fs-extra";
 import * as cron from "node-cron";
 import { Config } from "./Config";
 import { CostCollectorFetch } from "./CostCollector";
@@ -107,6 +107,7 @@ jest.mock("./ProviderConfigCheck", () => ({
 jest.mock("fs-extra", () => ({
   watchFile: jest.fn(),
   unwatchFile: jest.fn(),
+  writeFile: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("node-cron", () => ({
@@ -482,6 +483,53 @@ describe("Start", () => {
     expect(
       mockConfig.logEffectiveConfiguration.mock.invocationCallOrder[0],
     ).toBeGreaterThan(mockInitOTel().mock.invocationCallOrder[0]);
+  });
+
+  it("should propagate an OTel initialization failure without writing the heartbeat", async () => {
+    mockInitOTel().mockRejectedValueOnce(new Error("otel init failed"));
+
+    await expect(Start()).rejects.toThrow("otel init failed");
+
+    expect(cron.schedule).not.toHaveBeenCalled();
+    expect(CostCollectorFetch).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("should write the heartbeat at startup and every 60 seconds until Stop", async () => {
+    jest.useFakeTimers();
+
+    await Start();
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile).toHaveBeenCalledWith(
+      "/tmp/cloudcost-heartbeat",
+      expect.any(String),
+    );
+
+    jest.advanceTimersByTime(60000);
+    expect(writeFile).toHaveBeenCalledTimes(2);
+
+    jest.advanceTimersByTime(60000);
+    expect(writeFile).toHaveBeenCalledTimes(3);
+
+    await Stop();
+    jest.advanceTimersByTime(60000);
+    expect(writeFile).toHaveBeenCalledTimes(3);
+  });
+
+  it("should keep running when a heartbeat write fails", async () => {
+    (writeFile as unknown as jest.Mock).mockRejectedValueOnce(
+      new Error("disk full"),
+    );
+
+    await expect(Start()).resolves.toBeUndefined();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(cron.schedule).toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Failed to write heartbeat file",
+      expect.any(Error),
+    );
   });
 
   it("should schedule the summary notification when configured with a valid expression", async () => {

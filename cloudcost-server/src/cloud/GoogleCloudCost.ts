@@ -6,6 +6,10 @@ import { GetUtcMonthWindow } from "./MonthWindow";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAXIMUM_BYTES_BILLED = "1000000000";
+// Intentional exception to the 30 s COST_HTTP_TIMEOUT_MS used by every other
+// provider: a month-long billing-export aggregation can legitimately run for
+// minutes, and the BigQuery client already retries transient job failures.
+// A slow query can therefore delay one fetch cycle (and its notifications).
 const JOB_TIMEOUT_MS = 300000;
 
 export async function GoogleCloudGetMonthCurrent(

@@ -51,9 +51,34 @@ spec:
       labels:
         app: cloudcost
     spec:
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - image: cloudcost
           name: cloudcost
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - test -f /tmp/cloudcost-heartbeat && test $(( $(date +%s) - $(stat -c %Y /tmp/cloudcost-heartbeat) )) -lt 180
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           env:
             - name: COST_ENABLED_AWS
               value: "true"
@@ -105,7 +130,12 @@ spec:
             requests:
               memory: 128Mi
               cpu: 50m
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ```
+
+The service has no HTTP server, so it signals liveness through a heartbeat file at `/tmp/cloudcost-heartbeat`, written at startup and refreshed every 60 seconds (removed from the timer on shutdown). The exec probe above fails when the file is missing or older than 180 seconds, so a failed startup (which exits with code 1) or a hung event loop is reported by Kubernetes instead of showing a healthy `Running` container. With `readOnlyRootFilesystem: true` the `/tmp` `emptyDir` mount is required; the image runs as the non-root `node` user (UID/GID 1000), and `fsGroup: 1000` makes that volume writable.
 
 # Configuration
 
@@ -184,6 +214,8 @@ CloudCost reports every provider in USD. The Alibaba Cloud fetcher uses the inte
 Google Cloud does not provide a direct cost API equivalent to AWS Cost Explorer. Cost data is fetched via a BigQuery billing export. You must first [enable billing export to BigQuery](https://cloud.google.com/billing/docs/how-to/export-data-bigquery) in your GCP console, then grant the service account used by CloudCost the `bigquery.dataViewer` role on the billing dataset.
 
 Authentication uses the standard Google Cloud credential chain (environment variable `GOOGLE_APPLICATION_CREDENTIALS`, workload identity, etc.).
+
+**Timeout:** the BigQuery job uses a 5-minute `jobTimeoutMs` (300000 ms) instead of the 30 s `COST_HTTP_TIMEOUT_MS` applied to every other provider. This is intentional: aggregating a month of billing-export data can legitimately take minutes, and the BigQuery client already retries transient job failures. Because a fetch cycle waits for all enabled providers, a slow GCP query can delay that cycle and its notifications by a few minutes; it never blocks the cron schedule, which is registered before the initial fetch.
 
 | Variable                         | Description                                                              | Default |
 | -------------------------------- | ------------------------------------------------------------------------ | ------- |

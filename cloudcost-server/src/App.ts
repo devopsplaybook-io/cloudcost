@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { OTelLogger } from "./OTelContext";
 import { Start, Stop } from "./Start";
+import { WithTimeout } from "./Timeout";
 
 const logger = OTelLogger().createModuleLogger("app");
 
@@ -52,6 +53,22 @@ async function Shutdown(signal: string): Promise<void> {
 process.on("SIGTERM", () => void Shutdown("SIGTERM"));
 process.on("SIGINT", () => void Shutdown("SIGINT"));
 
-Start().catch((err) => {
+Start().catch(async (err) => {
   logger.error("Fatal error during startup", err);
+  // Exit instead of leaving a running but inert process: the heartbeat stops,
+  // no cron is registered, and the liveness probe (or Kubernetes restart
+  // policy) can then surface the failure.
+  try {
+    await WithTimeout(
+      () => Stop(),
+      SHUTDOWN_TIMEOUT_MS,
+      "Startup failure telemetry flush",
+    );
+  } catch (flushErr) {
+    logger.error(
+      "Error while flushing telemetry after failed startup",
+      flushErr as Error,
+    );
+  }
+  process.exit(1);
 });

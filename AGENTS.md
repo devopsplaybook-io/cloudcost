@@ -10,8 +10,8 @@ CloudCost is a server-only Node.js service that periodically fetches month-to-da
 cloudcost/
 ├── cloudcost-server/          # The sole application module
 │   ├── src/
-│   │   ├── App.ts             # Thin entry point: logging, rejection guard, SIGTERM/SIGINT shutdown, calls Start()
-│   │   ├── Start.ts           # Boot chain: config load + watch, OTel init, cron scheduling, initial fetch, Stop()
+│   │   ├── App.ts             # Thin entry point: logging, rejection guard, SIGTERM/SIGINT shutdown, fail-fast on startup error, calls Start()
+│   │   ├── Start.ts           # Boot chain: config load + watch, OTel init, heartbeat, cron scheduling, initial fetch, Stop()
 │   │   ├── Config.ts          # Config class: env vars > config.json > defaults
 │   │   ├── CloudDefinitions.ts # Registry of cloud providers + in-memory cost state
 │   │   ├── CostCollector.ts   # Orchestrates fetching costs from all enabled providers
@@ -95,16 +95,16 @@ npm run dependencies
 
 ### Startup Flow
 
-`App.ts` is a thin entry point (logging, `unhandledRejection` guard, SIGTERM/SIGINT graceful shutdown with a 5 s bound, `Start()` call); the boot chain lives in `Start.ts`:
+`App.ts` is a thin entry point (logging, `unhandledRejection` guard, SIGTERM/SIGINT graceful shutdown with a 5 s bound, fail-fast on startup error, `Start()` call); the boot chain lives in `Start.ts`:
 
 1. Creates a `Config` instance and calls `reload()` (reads `config.json` + env vars); a failure here is logged and startup continues with defaults
 2. Installs the `config.json` change listener (see Configuration System below)
-3. Initializes OTel tracer, meter, and logger singletons via `OTelContext.ts`, then `Config.logEffectiveConfiguration()` logs one `Effective configuration` line with the effective settings from a non-secret allowlist (secrets rendered as `[set]`/`[unset]`) so the boot configuration is exported to OTel
+3. Initializes OTel tracer, meter, and logger singletons via `OTelContext.ts`; when `initOTel` fails the rejection propagates, `App.ts` logs `Fatal error during startup`, flushes telemetry with a bounded `Stop()` (5 s) and exits with code 1 instead of leaving a running but inert process. Only after a successful init is the `/tmp/cloudcost-heartbeat` file written (then refreshed every 60 s, cleared on `Stop()`), which the deployment's exec liveness probe uses. Then `Config.logEffectiveConfiguration()` logs one `Effective configuration` line with the effective settings from a non-secret allowlist (secrets rendered as `[set]`/`[unset]`) so the boot configuration is exported to OTel
 4. `CostCollectorInit(config)` stores the config reference, `NotificationInit(config)` creates the shared `NotificationsClient` (disabled when `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not set), `MetricsInit(config)` registers the OTel observable gauges, and `ValidateProviderConfigs(config)` logs a startup report of enabled providers with missing or invalid configuration
 5. Both `node-cron` jobs are scheduled **before** the initial fetch, so a hanging initial fetch can never prevent periodic runs. The fetch job (`COST_FETCH_CRON`, UTC, `noOverlap: true`) validates the expression (invalid falls back to the default with an error log), waits a random 0–60 s jitter so deployments do not hit billing APIs at the same instant, then calls `RunFetchCycle()`. The summary job (`COST_NOTIFICATION_SUMMARY_SCHEDULE`, UTC, `noOverlap: true`) is only registered when the expression is non-empty and valid; it sends `NotificationSendSummary()`, a Markdown summary of the latest known cost metrics for the month. The summary send is retried once (2 attempts total, bounded) on failure before giving up until the next schedule
 6. The initial fetch runs `RunFetchCycle()`: `CostCollectorFetch()` (all enabled providers in parallel, per-provider error containment) followed by the four notification checks. A module-level guard skips a cycle while another is in progress
 7. After every fetch, `NotificationCheckThreshold()` sends a warning when the total cost reaches a threshold multiple higher than at the previous measurement, `NotificationCheckBudget()` sends a `warning` per newly crossed 50/75/100% level of `COST_BUDGET_MONTHLY_USD` plus a single `warning` when the projected month-end cost first exceeds the budget, `NotificationCheckLLMBalances()` evaluates every enabled LLM provider in every tracked currency and sends a `warning`/`error` when a balance crosses below that currency's threshold (`COST_LLM_BALANCE_ALERT_USD` for USD, `COST_LLM_BALANCE_ALERT_CNY` for CNY) or becomes empty, and `NotificationCheckFetchFailures()` sends a `warning` once per incident when an enabled provider's fetch streak reaches `COST_FETCH_FAILURE_ALERT_THRESHOLD` consecutive failures. All four are transition-only: the first check after startup establishes the baseline. An alert whose notification fails to deliver does not advance its baseline, so it is retried on the next cycle
-8. On SIGTERM/SIGINT, `Stop()` stops both cron jobs, removes the config watcher, and flushes the OTel tracer, meter, and logger (`shutdown()`), bounded by a 5 s timeout in `App.ts`
+8. On SIGTERM/SIGINT, `Stop()` clears the heartbeat interval, stops both cron jobs, removes the config watcher, and flushes the OTel tracer, meter, and logger (`shutdown()`), bounded by a 5 s timeout in `App.ts`
 
 ### Adding a New Cloud Provider
 
@@ -190,7 +190,23 @@ Multi-stage Dockerfile:
 - Jev is handled the same way (remaining credit in USD): TypeSafe AI's direct API has no balance endpoint, so the credit is derived from OpenRouter (`typesafe/jev-router`): a management key reads the account-wide credit from `GET /api/v1/credits` (`total_credits - total_usage`), and an inference key falls back to `GET /api/v1/auth/key` (`limit - usage`, empty when the key has no credit limit). A non-OpenRouter key (e.g. a TypeSafe `apikey_...` key), an error envelope or an inference key without a credit limit is flagged at startup by `ProviderConfigCheck`, logged as a warning by the fetcher and returned as a `BalanceFetchResult` error: `CostCollector` records a failed fetch and keeps the last known balance, so the failure-streak alert covers it while the cycle stays non-fatal
 - GitHub billing is handled as a normal provider in `CLOUDS`. `GITHUB_ACCOUNT_TYPE` selects `organization` or `user`, `GITHUB_ACCOUNT` identifies that account, and `GITHUB_TOKEN` authorizes the billing usage request.
 - All fetchers bound requests with the shared `COST_HTTP_TIMEOUT_MS` (30 s); idempotent HTTP GETs (Azure, Cloudflare, GitHub, DeepSeek, Moonshot AI, Z.AI, Jev) use the shared `WithRetry` helper for 408/429/5xx/403-with-`Retry-After`/transient-network errors up to 4 attempts, honoring `Retry-After` (seconds or HTTP-date) and `x-ms-retry-after-ms`; the Azure SDK retry policy is disabled so it does not amplify those attempts
+- Google Cloud is the intentional exception to the 30 s bound: its BigQuery job uses a 5-minute `jobTimeoutMs` (300000 ms) because a month-long billing-export aggregation can take minutes and the BigQuery client has its own retries; a slow query can delay one fetch cycle and its notifications (see README → Google Cloud → Timeout)
 - Month-to-date queries all use the shared UTC month window (`cloud/MonthWindow.ts`); AWS, Azure, Alibaba and Cloudflare follow every result page and warn when a page cap is reached
 - Alibaba Cloud amounts must be reported in USD: any other or mixed currency fails the fetch, and a response without a currency is assumed USD with a warning (see README)
 - Cloudflare's figure is the list-price run-rate of active subscriptions and zone plans, not invoiced usage; the README documents the cost basis per provider
 - Cloud provider SDK credentials are resolved from environment variables directly inside each fetcher, not through the `Config` class
+
+## Dependency updates
+
+- `.github/dependabot.yml` opens weekly grouped PRs for npm (`/cloudcost-server`) and for GitHub Actions, with `labels: ["dependencies"]` and `chore` commit prefixes.
+- The shared PR Check `version-check` requires the PR head's root `package.json` version to be greater than `main`. Dependabot only bumps the dependency manifests, so a bot PR fails that gate until the standard version bump is applied on its branch — this is intentional, not a regression. Do not disable the gate or force-merge.
+- To make a Dependabot (or any dependency-update) PR mergeable, bump both manifests together and push the bump to the bot branch:
+
+  ```bash
+  npm version <new-minor>.0 --no-git-tag-version
+  cd cloudcost-server && npm version <new-minor>.0 --no-git-tag-version
+  cd .. && git add package.json package-lock.json cloudcost-server/package.json cloudcost-server/package-lock.json
+  git commit -m "chore: bump version to <new-minor>.0"
+  ```
+
+- The PR Check also runs the dependency-audit gate (`audit_enabled: true` in `.github/workflows/pr-check.yml`): an unallowlisted high/critical **production** advisory fails the build; dev advisories are reported only. If a high/critical advisory can only be accepted temporarily, add a time-bounded entry to `.github/audit-allowlist.json` using the schema `{ "advisories": [{ "id", "package", "scope": "runtime", "expires", "reason", "owner" }] }`; fix or upgrade instead whenever possible.

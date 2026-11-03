@@ -17,6 +17,7 @@ jobs:
       node_app_directories: '["cloudcost-server"]'
       node_version: '24'
       docker_platforms: "linux/amd64"
+      audit_enabled: true
     secrets:
       DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_HUB_ACCESS_TOKEN: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
