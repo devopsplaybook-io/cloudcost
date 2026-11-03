@@ -25,6 +25,8 @@ describe("Config", () => {
     delete process.env.GITHUB_ACCOUNT;
     delete process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES;
     delete process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
+    delete process.env.NOTIFICATIONS_API;
+    delete process.env.NOTIFICATIONS_TOKEN;
   });
 
   afterEach(() => {
@@ -285,6 +287,35 @@ describe("Config", () => {
         "Invalid boolean value for COST_ENABLED_AWS",
       );
       expect(consoleOutput()).toContain("keeping current value false");
+    });
+  });
+
+  describe("logEffectiveConfiguration", () => {
+    it("should log one line with non-secret values and masked secrets", async () => {
+      process.env.NOTIFICATIONS_TOKEN = "super-secret-token";
+      process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER =
+        "Bearer super-secret-header";
+      const consoleLogSpy = jest
+        .spyOn(console, "log")
+        .mockImplementation(() => {});
+      mockedFse.readJson.mockResolvedValueOnce({ COST_ENABLED_AWS: true });
+
+      const config = new Config();
+      await config.reload();
+      consoleLogSpy.mockClear();
+
+      config.logEffectiveConfiguration();
+
+      const lines = consoleLogSpy.mock.calls.map((call) => call.join(" "));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("Effective configuration");
+      expect(lines[0]).toContain('"COST_ENABLED_AWS":true');
+      expect(lines[0]).toContain('"NOTIFICATIONS_TOKEN":"[set]"');
+      expect(lines[0]).toContain(
+        '"OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER":"[set]"',
+      );
+      expect(lines[0]).not.toContain("super-secret-token");
+      expect(lines[0]).not.toContain("super-secret-header");
     });
   });
 

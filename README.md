@@ -111,7 +111,13 @@ spec:
 
 Configuration values can be set via environment variables or through the `config.json` file. Environment variables take precedence over config file values, which take precedence over defaults.
 
-The configuration file is watched and reloaded when it changes. Boolean values must be `true` or `false` (case-insensitive); numeric values must be finite. An invalid value is logged and the current value is kept instead of silently falling back to a default. Changes to the notification thresholds/budget re-establish the alert baselines on the next check (no notification is sent for the change itself). Cron schedules (`COST_FETCH_CRON`, `COST_NOTIFICATION_SUMMARY_SCHEDULE`) and the set of registered per-provider metrics are only applied at startup: restart the service to apply changes to them.
+The configuration file is watched and reloaded when it changes. Boolean values must be `true` or `false` (case-insensitive); numeric values must be finite. An invalid value is logged and the current value is kept instead of silently falling back to a default.
+
+Most settings apply live. Changes to the notification thresholds, monthly budget, LLM balance alert threshold and fetch-failure alert threshold re-establish their alert baselines on the next check (no notification is sent for the change itself). Changes to `NOTIFICATIONS_API` or `NOTIFICATIONS_TOKEN` re-create the notification client, and enabled providers are revalidated on every successful reload, so a provider enabled by a file edit gets its missing or invalid configuration warnings.
+
+Cron schedules (`COST_FETCH_CRON`, `COST_NOTIFICATION_SUMMARY_SCHEDULE`), the OTel exporter endpoints, intervals and authorization (`OPENTELEMETRY_COLLECTOR_*`) and metric-gauge registration (provider enable flags and `OTEL_BY_CLOUD`) are only applied at startup: changing any of them logs a warning listing the changed fields and requiring a restart. Fetching for a newly enabled provider and the values of already-registered metrics stay live.
+
+After OpenTelemetry initialization the service logs one `Effective configuration` line containing the effective settings from an explicit non-secret allowlist, so the running configuration can be audited from telemetry. Secret values (`NOTIFICATIONS_TOKEN`, `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER`) are only reported as `[set]` or `[unset]`.
 
 ## General
 

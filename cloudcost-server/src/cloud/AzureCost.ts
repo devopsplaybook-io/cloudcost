@@ -25,8 +25,8 @@ type UsageResult = Awaited<
 >;
 
 interface UsagePage {
-  columns: NonNullable<UsageResult["columns"]>;
-  rows: NonNullable<UsageResult["rows"]>;
+  columns: NonNullable<NonNullable<UsageResult>["columns"]>;
+  rows: NonNullable<NonNullable<UsageResult>["rows"]>;
 }
 
 /**

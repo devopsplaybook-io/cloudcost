@@ -12,7 +12,7 @@
     "strict": false,
     "noImplicitAny": false,
     "strictPropertyInitialization": false,
-    "strictNullChecks": false
+    "strictNullChecks": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "coverage", "test", "dist", "src/**/*.spec.ts"]

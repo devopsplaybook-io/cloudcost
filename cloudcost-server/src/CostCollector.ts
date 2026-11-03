@@ -36,13 +36,19 @@ function ResetBalances(balances: Record<string, number | undefined>): void {
 export async function CostCollectorFetch(): Promise<void> {
   const span = OTelTracer().startSpan("SchedulerPricesCheck");
   const tasks: Promise<void>[] = [];
+  // Enabled providers in evaluation order mapped to their fetch outcome. The
+  // per-provider child spans remain the error signal; this map only feeds the
+  // cycle span attributes.
+  const outcomes = new Map<string, boolean>();
 
   for (const cloud of CLOUDS) {
     if (config[cloud.configFlag]) {
+      outcomes.set(cloud.key, false);
       tasks.push(
         cloud
           .fetcher(span, config)
           .then((amount) => {
+            outcomes.set(cloud.key, true);
             RecordFetchSuccess(cloud.key, new Date());
             cost[cloud.key] = amount;
             span.addEvent(`${cloud.label} cost: ` + JSON.stringify(amount));
@@ -57,7 +63,6 @@ export async function CostCollectorFetch(): Promise<void> {
           .catch((err) => {
             RecordFetchFailure(cloud.key, new Date(), (err as Error).message);
             logger.error(`Error fetching ${cloud.label} cost`, err, span);
-            span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
           }),
       );
     } else {
@@ -69,9 +74,11 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_DEEPSEEK) {
+    outcomes.set("deepseek", false);
     tasks.push(
       DeepSeekGetBalance(span)
         .then((balances) => {
+          outcomes.set("deepseek", true);
           RecordFetchSuccess("deepseek", new Date());
           ResetBalances(deepseekBalances);
           for (const b of balances) {
@@ -81,7 +88,6 @@ export async function CostCollectorFetch(): Promise<void> {
         .catch((err) => {
           RecordFetchFailure("deepseek", new Date(), (err as Error).message);
           logger.error("Error fetching DeepSeek balance", err, span);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
     );
   } else {
@@ -92,9 +98,11 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_MOONSHOTAI) {
+    outcomes.set("moonshotai", false);
     tasks.push(
       MoonshotAIGetBalance(span)
         .then((balances) => {
+          outcomes.set("moonshotai", true);
           RecordFetchSuccess("moonshotai", new Date());
           ResetBalances(moonshotAIBalances);
           for (const b of balances) {
@@ -104,7 +112,6 @@ export async function CostCollectorFetch(): Promise<void> {
         .catch((err) => {
           RecordFetchFailure("moonshotai", new Date(), (err as Error).message);
           logger.error("Error fetching Moonshot AI balance", err, span);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
     );
   } else {
@@ -115,9 +122,11 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_ZAI) {
+    outcomes.set("zai", false);
     tasks.push(
       ZAIGetBalance(span)
         .then((balances) => {
+          outcomes.set("zai", true);
           RecordFetchSuccess("zai", new Date());
           ResetBalances(zaiBalances);
           for (const b of balances) {
@@ -127,7 +136,6 @@ export async function CostCollectorFetch(): Promise<void> {
         .catch((err) => {
           RecordFetchFailure("zai", new Date(), (err as Error).message);
           logger.error("Error fetching Z.AI balance", err, span);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
     );
   } else {
@@ -138,9 +146,11 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   if (config.COST_ENABLED_JEV) {
+    outcomes.set("jev", false);
     tasks.push(
       JevGetBalance(span)
         .then((balances) => {
+          outcomes.set("jev", true);
           RecordFetchSuccess("jev", new Date());
           ResetBalances(jevBalances);
           for (const b of balances) {
@@ -150,7 +160,6 @@ export async function CostCollectorFetch(): Promise<void> {
         .catch((err) => {
           RecordFetchFailure("jev", new Date(), (err as Error).message);
           logger.error("Error fetching Jev balance", err, span);
-          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
         }),
     );
   } else {
@@ -161,5 +170,17 @@ export async function CostCollectorFetch(): Promise<void> {
   }
 
   await Promise.all(tasks);
+
+  const enabled = Array.from(outcomes.keys());
+  const failed = enabled.filter((key) => !outcomes.get(key));
+  span.setAttribute("providers.enabled", enabled.length);
+  span.setAttribute("providers.succeeded", enabled.length - failed.length);
+  span.setAttribute("providers.failed", failed.length);
+  if (failed.length > 0) {
+    span.setAttribute("providers.failed.names", failed.join(","));
+  }
+  // The parent span represents the whole cycle; an individual provider failure
+  // stays on its child span so it does not mark every cycle as errored.
+  span.setStatus({ code: SpanStatusCode.OK });
   span.end();
 }

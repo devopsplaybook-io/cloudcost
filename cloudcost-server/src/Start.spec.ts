@@ -8,11 +8,13 @@ import {
   NotificationCheckFetchFailures,
   NotificationCheckLLMBalances,
   NotificationCheckThreshold,
+  NotificationInit,
   NotificationResetBudget,
   NotificationResetLLMBalances,
   NotificationResetThreshold,
 } from "./NotificationService";
 import { OTelLogger } from "./OTelContext";
+import { ValidateProviderConfigs } from "./ProviderConfigCheck";
 import { Start, Stop } from "./Start";
 
 jest.mock("@devopsplaybook.io/otel-utils", () => ({
@@ -23,10 +25,12 @@ jest.mock("@devopsplaybook.io/otel-utils", () => ({
 jest.mock("./OTelContext", () => {
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const shutdown = jest.fn().mockResolvedValue(undefined);
+  const mockInitOTel = jest.fn();
   return {
+    mockInitOTel,
     OTelLogger: () => ({
       createModuleLogger: () => logger,
-      initOTel: jest.fn(),
+      initOTel: mockInitOTel,
       shutdown,
     }),
     OTelSetTracer: jest.fn(),
@@ -44,10 +48,31 @@ jest.mock("./Config", () => {
     CONFIG_FILE: "config.json",
     COST_FETCH_CRON: "0 */12 * * *",
     COST_NOTIFICATION_SUMMARY_SCHEDULE: "",
+    COST_ENABLED_ALIBABACLOUD: false,
+    COST_ENABLED_AWS: false,
+    COST_ENABLED_AZURE: false,
+    COST_ENABLED_GOOGLECLOUD: false,
+    COST_ENABLED_CLOUDFLARE: false,
+    COST_ENABLED_GITHUB: false,
+    COST_ENABLED_DEEPSEEK: false,
+    COST_ENABLED_MOONSHOTAI: false,
+    COST_ENABLED_ZAI: false,
+    COST_ENABLED_JEV: false,
+    OTEL_BY_CLOUD: true,
+    OPENTELEMETRY_COLLECTOR_HTTP_TRACES: "",
+    OPENTELEMETRY_COLLECTOR_HTTP_METRICS: "",
+    OPENTELEMETRY_COLLECTOR_HTTP_LOGS: "",
+    OPENTELEMETRY_COLLECTOR_AWS: false,
+    OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS: 600,
+    OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS: 600,
+    OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+    NOTIFICATIONS_API: "",
+    NOTIFICATIONS_TOKEN: "",
     COST_NOTIFICATION_THRESHOLD: 10,
     COST_BUDGET_MONTHLY_USD: 0,
     COST_LLM_BALANCE_ALERT_USD: 5,
     reload: jest.fn(),
+    logEffectiveConfiguration: jest.fn(),
   };
   return {
     Config: jest.fn(() => instance),
@@ -92,10 +117,39 @@ interface MockConfig {
   CONFIG_FILE: string;
   COST_FETCH_CRON: string;
   COST_NOTIFICATION_SUMMARY_SCHEDULE: string;
+  COST_ENABLED_ALIBABACLOUD: boolean;
+  COST_ENABLED_AWS: boolean;
+  COST_ENABLED_AZURE: boolean;
+  COST_ENABLED_GOOGLECLOUD: boolean;
+  COST_ENABLED_CLOUDFLARE: boolean;
+  COST_ENABLED_GITHUB: boolean;
+  COST_ENABLED_DEEPSEEK: boolean;
+  COST_ENABLED_MOONSHOTAI: boolean;
+  COST_ENABLED_ZAI: boolean;
+  COST_ENABLED_JEV: boolean;
+  OTEL_BY_CLOUD: boolean;
+  OPENTELEMETRY_COLLECTOR_HTTP_TRACES: string;
+  OPENTELEMETRY_COLLECTOR_HTTP_METRICS: string;
+  OPENTELEMETRY_COLLECTOR_HTTP_LOGS: string;
+  OPENTELEMETRY_COLLECTOR_AWS: boolean;
+  OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS: number;
+  OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS: number;
+  OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: string;
+  NOTIFICATIONS_API: string;
+  NOTIFICATIONS_TOKEN: string;
   COST_NOTIFICATION_THRESHOLD: number;
   COST_BUDGET_MONTHLY_USD: number;
   COST_LLM_BALANCE_ALERT_USD: number;
   reload: jest.Mock;
+  logEffectiveConfiguration: jest.Mock;
+}
+
+function mockInitOTel(): jest.Mock {
+  return (
+    jest.requireMock("./OTelContext") as unknown as {
+      mockInitOTel: jest.Mock;
+    }
+  ).mockInitOTel;
 }
 
 describe("Start", () => {
@@ -113,6 +167,26 @@ describe("Start", () => {
     mockConfig.CONFIG_FILE = "config.json";
     mockConfig.COST_FETCH_CRON = "0 */12 * * *";
     mockConfig.COST_NOTIFICATION_SUMMARY_SCHEDULE = "";
+    mockConfig.COST_ENABLED_ALIBABACLOUD = false;
+    mockConfig.COST_ENABLED_AWS = false;
+    mockConfig.COST_ENABLED_AZURE = false;
+    mockConfig.COST_ENABLED_GOOGLECLOUD = false;
+    mockConfig.COST_ENABLED_CLOUDFLARE = false;
+    mockConfig.COST_ENABLED_GITHUB = false;
+    mockConfig.COST_ENABLED_DEEPSEEK = false;
+    mockConfig.COST_ENABLED_MOONSHOTAI = false;
+    mockConfig.COST_ENABLED_ZAI = false;
+    mockConfig.COST_ENABLED_JEV = false;
+    mockConfig.OTEL_BY_CLOUD = true;
+    mockConfig.OPENTELEMETRY_COLLECTOR_HTTP_TRACES = "";
+    mockConfig.OPENTELEMETRY_COLLECTOR_HTTP_METRICS = "";
+    mockConfig.OPENTELEMETRY_COLLECTOR_HTTP_LOGS = "";
+    mockConfig.OPENTELEMETRY_COLLECTOR_AWS = false;
+    mockConfig.OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS = 600;
+    mockConfig.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS = 600;
+    mockConfig.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER = "";
+    mockConfig.NOTIFICATIONS_API = "";
+    mockConfig.NOTIFICATIONS_TOKEN = "";
     mockConfig.COST_NOTIFICATION_THRESHOLD = 10;
     mockConfig.COST_BUDGET_MONTHLY_USD = 0;
     mockConfig.COST_LLM_BALANCE_ALERT_USD = 5;
@@ -298,18 +372,98 @@ describe("Start", () => {
     expect(NotificationResetLLMBalances).toHaveBeenCalled();
   });
 
-  it("should warn that cron schedule changes require a restart", async () => {
+  it("should warn about every startup-only setting changed by a reload", async () => {
     await Start();
     const watcherCallback = jest.mocked(watchFile).mock
       .calls[0][1] as () => void;
 
     watcherCallback();
     mockConfig.COST_FETCH_CRON = "*/30 * * * *";
+    mockConfig.OPENTELEMETRY_COLLECTOR_HTTP_METRICS =
+      "http://otel-collector:4318/v1/metrics";
+    mockConfig.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS = 30;
+    mockConfig.COST_ENABLED_AWS = true;
+    mockConfig.OTEL_BY_CLOUD = false;
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("restart the service"),
+    const restartWarning = mockLogger.warn.mock.calls
+      .map((call) => call[0])
+      .find(
+        (message): message is string =>
+          typeof message === "string" &&
+          message.includes("restart the service"),
+      );
+    expect(restartWarning).toBeDefined();
+    for (const field of [
+      "COST_FETCH_CRON",
+      "OPENTELEMETRY_COLLECTOR_HTTP_METRICS",
+      "OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS",
+      "COST_ENABLED_AWS",
+      "OTEL_BY_CLOUD",
+    ]) {
+      expect(restartWarning).toContain(field);
+    }
+  });
+
+  it("should revalidate the provider configuration after a successful reload", async () => {
+    await Start();
+    expect(ValidateProviderConfigs).toHaveBeenCalledTimes(1);
+    const watcherCallback = jest.mocked(watchFile).mock
+      .calls[0][1] as () => void;
+
+    watcherCallback();
+    mockConfig.COST_ENABLED_AZURE = true;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(ValidateProviderConfigs).toHaveBeenCalledTimes(2);
+    expect(ValidateProviderConfigs).toHaveBeenLastCalledWith(mockConfig);
+  });
+
+  it("should not revalidate the provider configuration after a failed reload", async () => {
+    await Start();
+    const watcherCallback = jest.mocked(watchFile).mock
+      .calls[0][1] as () => void;
+    mockConfig.reload.mockRejectedValueOnce(new Error("invalid json"));
+
+    watcherCallback();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(ValidateProviderConfigs).toHaveBeenCalledTimes(1);
+  });
+
+  it("should re-initialize the notification client when its settings change on reload", async () => {
+    await Start();
+    expect(NotificationInit).toHaveBeenCalledTimes(1);
+    const watcherCallback = jest.mocked(watchFile).mock
+      .calls[0][1] as () => void;
+
+    watcherCallback();
+    mockConfig.NOTIFICATIONS_API = "https://notifications.example/api";
+    mockConfig.NOTIFICATIONS_TOKEN = "secret-notification-token";
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(NotificationInit).toHaveBeenCalledTimes(2);
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining("notification client re-initialized"),
     );
+    const restartWarning = mockLogger.warn.mock.calls.find(
+      (call) =>
+        typeof call[0] === "string" && call[0].includes("restart the service"),
+    );
+    expect(restartWarning).toBeUndefined();
+    const loggedToken = mockLogger.info.mock.calls.some((call) =>
+      JSON.stringify(call).includes("secret-notification-token"),
+    );
+    expect(loggedToken).toBe(false);
+  });
+
+  it("should log the effective configuration once, after OTel initialization", async () => {
+    await Start();
+
+    expect(mockConfig.logEffectiveConfiguration).toHaveBeenCalledTimes(1);
+    expect(
+      mockConfig.logEffectiveConfiguration.mock.invocationCallOrder[0],
+    ).toBeGreaterThan(mockInitOTel().mock.invocationCallOrder[0]);
   });
 
   it("should schedule the summary notification when configured with a valid expression", async () => {
