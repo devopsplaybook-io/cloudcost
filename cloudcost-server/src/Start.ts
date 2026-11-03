@@ -33,6 +33,31 @@ const cronTasks: cron.ScheduledTask[] = [];
 // multiple instances do not hit the provider APIs at the same instant.
 const FETCH_JITTER_MAX_MS = 60000;
 
+// Settings read once at startup (cron scheduling, OTel exporter construction
+// and gauge registration). Changing them on reload is only warned about.
+const STARTUP_ONLY_SETTINGS: (keyof Config)[] = [
+  "COST_FETCH_CRON",
+  "COST_NOTIFICATION_SUMMARY_SCHEDULE",
+  "COST_ENABLED_ALIBABACLOUD",
+  "COST_ENABLED_AWS",
+  "COST_ENABLED_AZURE",
+  "COST_ENABLED_GOOGLECLOUD",
+  "COST_ENABLED_CLOUDFLARE",
+  "COST_ENABLED_GITHUB",
+  "COST_ENABLED_DEEPSEEK",
+  "COST_ENABLED_MOONSHOTAI",
+  "COST_ENABLED_ZAI",
+  "COST_ENABLED_JEV",
+  "OTEL_BY_CLOUD",
+  "OPENTELEMETRY_COLLECTOR_HTTP_TRACES",
+  "OPENTELEMETRY_COLLECTOR_HTTP_METRICS",
+  "OPENTELEMETRY_COLLECTOR_HTTP_LOGS",
+  "OPENTELEMETRY_COLLECTOR_AWS",
+  "OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS",
+  "OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS",
+  "OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER",
+];
+
 let configFilePath: string | null = null;
 let configReloadListener: (() => void) | null = null;
 
@@ -141,8 +166,11 @@ export async function Start(): Promise<void> {
       threshold: config.COST_NOTIFICATION_THRESHOLD,
       budget: config.COST_BUDGET_MONTHLY_USD,
       llmBalance: config.COST_LLM_BALANCE_ALERT_USD,
-      fetchCron: config.COST_FETCH_CRON,
-      summarySchedule: config.COST_NOTIFICATION_SUMMARY_SCHEDULE,
+      notificationsApi: config.NOTIFICATIONS_API,
+      notificationsToken: config.NOTIFICATIONS_TOKEN,
+      startupOnly: STARTUP_ONLY_SETTINGS.map(
+        (key) => [key, config[key]] as const,
+      ),
     };
     // A failed reload keeps the last good configuration.
     config
@@ -167,11 +195,23 @@ export async function Start(): Promise<void> {
           );
         }
         if (
-          config.COST_FETCH_CRON !== previous.fetchCron ||
-          config.COST_NOTIFICATION_SUMMARY_SCHEDULE !== previous.summarySchedule
+          config.NOTIFICATIONS_API !== previous.notificationsApi ||
+          config.NOTIFICATIONS_TOKEN !== previous.notificationsToken
         ) {
+          NotificationInit(config);
+          logger.info(
+            "Notifications configuration changed: notification client re-initialized",
+          );
+        }
+        // A provider enabled by a file edit gets its missing or invalid
+        // configuration warnings here, not only at startup.
+        ValidateProviderConfigs(config);
+        const changedStartupOnly = previous.startupOnly
+          .filter(([key, value]) => config[key] !== value)
+          .map(([key]) => key);
+        if (changedStartupOnly.length > 0) {
           logger.warn(
-            "Cron schedules are applied at startup only: restart the service to apply the updated COST_FETCH_CRON or COST_NOTIFICATION_SUMMARY_SCHEDULE",
+            `Configuration settings applied at startup only changed (${changedStartupOnly.join(", ")}): restart the service to apply cron schedules, OTel exporter configuration and metric-gauge registration (fetching and already-registered metric values stay live)`,
           );
         }
       })
@@ -187,6 +227,7 @@ export async function Start(): Promise<void> {
   OTelSetTracer(new StandardTracer(config));
   OTelSetMeter(new StandardMeter(config));
   await OTelLogger().initOTel(config);
+  config.logEffectiveConfiguration();
 
   const span = OTelTracer().startSpan("init");
   CostCollectorInit(config);

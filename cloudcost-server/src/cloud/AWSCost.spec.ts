@@ -1,3 +1,4 @@
+import { SpanStatusCode } from "@opentelemetry/api";
 import { Span } from "@opentelemetry/sdk-trace";
 import {
   CostExplorerClient,
@@ -13,15 +14,12 @@ jest.mock("@aws-sdk/client-cost-explorer", () => ({
 
 jest.mock("../OTelContext", () => {
   const moduleLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  const span = { end: jest.fn(), setStatus: jest.fn() };
   return {
     mockLogger: moduleLogger,
+    mockSpan: span,
     OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
-    OTelTracer: () => ({
-      startSpan: () => ({
-        end: jest.fn(),
-        setStatus: jest.fn(),
-      }),
-    }),
+    OTelTracer: () => ({ startSpan: () => span }),
   };
 });
 
@@ -31,6 +29,14 @@ function mockLogger(): { info: jest.Mock; warn: jest.Mock; error: jest.Mock } {
       mockLogger: { info: jest.Mock; warn: jest.Mock; error: jest.Mock };
     }
   ).mockLogger;
+}
+
+function mockSpan(): { end: jest.Mock; setStatus: jest.Mock } {
+  return (
+    jest.requireMock("../OTelContext") as unknown as {
+      mockSpan: { end: jest.Mock; setStatus: jest.Mock };
+    }
+  ).mockSpan;
 }
 
 describe("AWSCost", () => {
@@ -207,11 +213,17 @@ describe("AWSCost", () => {
     });
   });
 
-  it("should re-throw SDK errors", async () => {
+  it("should re-throw SDK errors and mark the child span as errored", async () => {
     sendMock.mockRejectedValueOnce(new Error("AccessDeniedException"));
 
     await expect(AWSGetMonthCurrent(fakeSpan)).rejects.toThrow(
       "AccessDeniedException",
     );
+
+    expect(mockSpan().setStatus).toHaveBeenCalledWith({
+      code: SpanStatusCode.ERROR,
+      message: "AccessDeniedException",
+    });
+    expect(mockSpan().end).toHaveBeenCalled();
   });
 });

@@ -45,6 +45,7 @@ jest.mock("./cloud/JevCost", () => ({ JevGetBalance: jest.fn() }));
 jest.mock("./OTelContext", () => {
   const span = {
     addEvent: jest.fn(),
+    setAttribute: jest.fn(),
     setStatus: jest.fn(),
     end: jest.fn(),
   };
@@ -62,6 +63,7 @@ jest.mock("./OTelContext", () => {
 
 describe("CostCollector", () => {
   const span = OTelTracer().startSpan("test") as unknown as {
+    setAttribute: jest.Mock;
     setStatus: jest.Mock;
     end: jest.Mock;
   };
@@ -129,6 +131,25 @@ describe("CostCollector", () => {
     expect(span.end).toHaveBeenCalled();
   });
 
+  it("should mark the cycle span OK and record the provider outcomes", async () => {
+    const config = new Config();
+    config.COST_ENABLED_AWS = true;
+    config.COST_ENABLED_DEEPSEEK = true;
+    CostCollectorInit(config);
+
+    await CostCollectorFetch();
+
+    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.OK });
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.enabled", 2);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.succeeded", 2);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.failed", 0);
+    expect(span.setAttribute).not.toHaveBeenCalledWith(
+      "providers.failed.names",
+      expect.anything(),
+    );
+    expect(span.end).toHaveBeenCalled();
+  });
+
   it("should contain a provider failure without overwriting its last cost", async () => {
     const config = new Config();
     config.COST_ENABLED_AWS = true;
@@ -142,10 +163,19 @@ describe("CostCollector", () => {
 
     expect(cost.aws).toEqual({ total: 10, services: {} });
     expect(cost.azure).toEqual({ total: 5, services: { "Virtual Machines": 5 } });
-    expect(span.setStatus).toHaveBeenCalledWith({
-      code: SpanStatusCode.ERROR,
-      message: "429 Too Many Requests",
-    });
+    // The failing provider stays on its child span; the cycle span is OK.
+    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.OK });
+    expect(span.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: SpanStatusCode.ERROR }),
+    );
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.enabled", 2);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.succeeded", 1);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.failed", 1);
+    expect(span.setAttribute).toHaveBeenCalledWith(
+      "providers.failed.names",
+      "azure",
+    );
+    expect(fetchers.azure).toHaveBeenCalledWith(span, config);
     expect(GetProviderFetchStatus("aws")).toMatchObject({
       lastAttemptSuccess: true,
       consecutiveFailures: 0,
@@ -209,10 +239,18 @@ describe("CostCollector", () => {
     await CostCollectorFetch();
 
     expect(deepseekBalances.USD).toBe(5.5);
-    expect(span.setStatus).toHaveBeenCalledWith({
-      code: SpanStatusCode.ERROR,
-      message: "401 Unauthorized",
-    });
+    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.OK });
+    expect(span.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: SpanStatusCode.ERROR }),
+    );
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.enabled", 2);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.succeeded", 1);
+    expect(span.setAttribute).toHaveBeenCalledWith("providers.failed", 1);
+    expect(span.setAttribute).toHaveBeenCalledWith(
+      "providers.failed.names",
+      "jev",
+    );
+    expect(llmFetchers.jev).toHaveBeenCalledWith(span);
     expect(GetProviderFetchStatus("deepseek")).toMatchObject({
       lastAttemptSuccess: true,
       consecutiveFailures: 0,

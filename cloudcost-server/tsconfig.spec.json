@@ -4,6 +4,7 @@
     "strict": false,
     "noImplicitAny": false,
     "strictPropertyInitialization": false,
+    "strictNullChecks": true,
     "types": ["jest", "node"]
   },
   "include": ["src/**/*.spec.ts", "src/**/*.ts"],
