@@ -1,5 +1,5 @@
 import { StandardMeter, StandardTracer } from "@devopsplaybook.io/otel-utils";
-import { unwatchFile, watchFile } from "fs-extra";
+import { unwatchFile, watchFile, writeFile } from "fs-extra";
 import * as cron from "node-cron";
 import { Config, DEFAULT_COST_FETCH_CRON } from "./Config";
 import { CostCollectorFetch, CostCollectorInit } from "./CostCollector";
@@ -32,6 +32,19 @@ const cronTasks: cron.ScheduledTask[] = [];
 // Upper bound of the random delay applied to cron-triggered fetches so that
 // multiple instances do not hit the provider APIs at the same instant.
 const FETCH_JITTER_MAX_MS = 60000;
+
+// The service has no HTTP server, so liveness is signalled with a heartbeat
+// file refreshed every minute; the deployment's exec probe fails when it is
+// missing or older than 180 s.
+const HEARTBEAT_FILE = "/tmp/cloudcost-heartbeat";
+const HEARTBEAT_INTERVAL_MS = 60_000;
+let heartbeatTimer: NodeJS.Timeout | null = null;
+
+function WriteHeartbeat(): void {
+  writeFile(HEARTBEAT_FILE, new Date().toISOString()).catch((err) =>
+    logger.error("Failed to write heartbeat file", err),
+  );
+}
 
 // Settings read once at startup (cron scheduling, OTel exporter construction
 // and gauge registration). Changing them on reload is only warned about.
@@ -231,6 +244,11 @@ export async function Start(): Promise<void> {
   OTelSetTracer(new StandardTracer(config));
   OTelSetMeter(new StandardMeter(config));
   await OTelLogger().initOTel(config);
+  // Only start the heartbeat once OTel initialized: a failed init must keep
+  // the liveness probe unhealthy instead of masking the failure.
+  WriteHeartbeat();
+  heartbeatTimer = setInterval(WriteHeartbeat, HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer.unref?.();
   config.logEffectiveConfiguration();
 
   const span = OTelTracer().startSpan("init");
@@ -254,6 +272,11 @@ export async function Start(): Promise<void> {
  * SIGTERM/SIGINT so a container shutdown does not lose buffered telemetry.
  */
 export async function Stop(): Promise<void> {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
   for (const task of cronTasks) {
     task.stop();
   }
