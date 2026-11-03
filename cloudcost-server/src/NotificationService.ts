@@ -180,27 +180,48 @@ export function NotificationResetThreshold(): void {
 
 type LLMBalanceState = "ok" | "warning" | "error";
 
-// Track the severity observed at the previous check for each LLM provider so a
-// notification is sent only when a provider crosses into a low-credit state
-// between two consecutive checks. A missing entry means no previous
-// measurement yet (startup baseline), which never notifies.
+// Track the severity observed at the previous check for each LLM provider and
+// currency (composite key `provider:currency`) so a notification is sent only
+// when that currency crosses into a low-credit state between two consecutive
+// checks. A missing entry means no previous measurement yet (startup
+// baseline), which never notifies.
 const previousLLMBalanceStates = new Map<string, LLMBalanceState>();
 
 /**
- * Check the USD credit balance of every enabled LLM provider and send a
- * notification when a provider drops below the low-credit alert threshold
- * (`warning`) or runs empty (`error`).
- * The first check (startup baseline) never notifies; afterwards a notification
- * is sent only when the state changes into `warning` or `error` between two
- * consecutive checks. Recovering to `ok` is silent but re-arms the alert.
+ * Low-credit alert threshold for a currency, in native currency units. CNY has
+ * its own setting; any other currency (USD included) uses the USD threshold.
+ */
+function getLLMBalanceAlertThreshold(currency: string): number {
+  return currency === "CNY"
+    ? config.COST_LLM_BALANCE_ALERT_CNY
+    : config.COST_LLM_BALANCE_ALERT_USD;
+}
+
+/**
+ * Format a balance or threshold amount with its currency. USD keeps the
+ * historical `$5.00 USD` notation; other currencies use native units
+ * (`5.00 CNY`), since no FX conversion is performed.
+ */
+function formatBalanceAmount(amount: number, currency: string): string {
+  return currency === "USD"
+    ? `${formatUsd(amount)} USD`
+    : `${amount.toFixed(2)} ${currency}`;
+}
+
+/**
+ * Check the remaining credit of every enabled LLM provider in every tracked
+ * currency and send a notification when a balance drops below that currency's
+ * low-credit alert threshold (`warning`) or runs empty (`error`). Thresholds
+ * are evaluated in native currency units (no FX conversion): `CNY` uses
+ * `COST_LLM_BALANCE_ALERT_CNY`, any other currency uses
+ * `COST_LLM_BALANCE_ALERT_USD`; a threshold of `0` disables that currency.
+ * The first check (startup baseline) never notifies; afterwards a
+ * notification is sent only when a provider/currency state changes into
+ * `warning` or `error` between two consecutive checks. Recovering to `ok` is
+ * silent but re-arms the alert.
  */
 export async function NotificationCheckLLMBalances(): Promise<void> {
   if (!notificationClient || !notificationClient.isEnabled()) {
-    return;
-  }
-
-  const threshold = config.COST_LLM_BALANCE_ALERT_USD;
-  if (threshold <= 0) {
     return;
   }
 
@@ -208,48 +229,55 @@ export async function NotificationCheckLLMBalances(): Promise<void> {
     if (!config[source.configFlag]) {
       continue;
     }
-    const balance = source.balances["USD"];
-    if (balance === undefined) {
-      continue;
-    }
-    const state: LLMBalanceState =
-      balance <= 0 ? "error" : balance < threshold ? "warning" : "ok";
-    const previousState = previousLLMBalanceStates.get(source.provider);
+    for (const [currency, balance] of Object.entries(source.balances)) {
+      if (balance === undefined || !Number.isFinite(balance)) {
+        continue;
+      }
+      const threshold = getLLMBalanceAlertThreshold(currency);
+      if (threshold <= 0) {
+        continue;
+      }
+      const state: LLMBalanceState =
+        balance <= 0 ? "error" : balance < threshold ? "warning" : "ok";
+      const stateKey = `${source.provider}:${currency}`;
+      const previousState = previousLLMBalanceStates.get(stateKey);
 
-    // Only notify when a provider crosses into a low-credit state between two
-    // consecutive checks: the baseline measurement never notifies and
-    // recovering to `ok` is silent
-    if (
-      state === "ok" ||
-      previousState === undefined ||
-      previousState === state
-    ) {
-      previousLLMBalanceStates.set(source.provider, state);
-      continue;
-    }
+      // Only notify when a provider/currency crosses into a low-credit state
+      // between two consecutive checks: the baseline measurement never
+      // notifies and recovering to `ok` is silent
+      if (
+        state === "ok" ||
+        previousState === undefined ||
+        previousState === state
+      ) {
+        previousLLMBalanceStates.set(stateKey, state);
+        continue;
+      }
 
-    const title =
-      state === "error"
-        ? `LLM credit depleted: ${source.provider}`
-        : `LLM credit low: ${source.provider}`;
-    const body =
-      state === "error"
-        ? `${source.provider} remaining credit is empty (${formatUsd(balance)} USD).\n\n${buildLLMCreditsTable()}`
-        : `${source.provider} remaining credit dropped below the low-credit alert threshold (${formatUsd(threshold)} USD).\n\n${buildLLMCreditsTable()}`;
+      const titleSuffix = currency === "USD" ? "" : ` (${currency})`;
+      const title =
+        state === "error"
+          ? `LLM credit depleted: ${source.provider}${titleSuffix}`
+          : `LLM credit low: ${source.provider}${titleSuffix}`;
+      const body =
+        state === "error"
+          ? `${source.provider} remaining credit is empty (${formatBalanceAmount(balance, currency)}).\n\n${buildLLMCreditsTable()}`
+          : `${source.provider} remaining credit dropped below the low-credit alert threshold (${formatBalanceAmount(threshold, currency)}).\n\n${buildLLMCreditsTable()}`;
 
-    const response =
-      state === "error"
-        ? await notificationClient.error(title, body, "cloudcost")
-        : await notificationClient.warning(title, body, "cloudcost");
-    if (response) {
-      // Commit the new state only after a successful delivery; a failed
-      // delivery is retried on the next check while the state still differs.
-      previousLLMBalanceStates.set(source.provider, state);
-      logger.info(`LLM balance notification sent: ${title}`);
-    } else {
-      logger.warn(
-        `LLM balance notification delivery failed, retrying on the next check: ${title}`,
-      );
+      const response =
+        state === "error"
+          ? await notificationClient.error(title, body, "cloudcost")
+          : await notificationClient.warning(title, body, "cloudcost");
+      if (response) {
+        // Commit the new state only after a successful delivery; a failed
+        // delivery is retried on the next check while the state still differs.
+        previousLLMBalanceStates.set(stateKey, state);
+        logger.info(`LLM balance notification sent: ${title}`);
+      } else {
+        logger.warn(
+          `LLM balance notification delivery failed, retrying on the next check: ${title}`,
+        );
+      }
     }
   }
 }
@@ -481,7 +509,9 @@ function buildLLMCreditsTable(includeFetchStatus = false): string {
       }
       const cells = currencyList.map((currency) => {
         const value = source.balances[currency];
-        return value !== undefined && value > 0 ? value.toFixed(2) : "-";
+        return value !== undefined && Number.isFinite(value) && value >= 0
+          ? value.toFixed(2)
+          : "-";
       });
       const status = includeFetchStatus
         ? GetProviderFetchStatus(source.provider)
@@ -497,18 +527,18 @@ function buildLLMCreditsTable(includeFetchStatus = false): string {
     }
     const totalCells = currencyList.map((currency) => {
       let currencyTotal = 0;
-      let hasCredit = false;
+      let hasValue = false;
       for (const source of LLM_BALANCE_SOURCES) {
         if (!config[source.configFlag]) {
           continue;
         }
         const value = source.balances[currency];
-        if (value !== undefined && value > 0) {
+        if (value !== undefined && Number.isFinite(value) && value >= 0) {
           currencyTotal += value;
-          hasCredit = true;
+          hasValue = true;
         }
       }
-      return hasCredit ? `**${currencyTotal.toFixed(2)}**` : "-";
+      return hasValue ? `**${currencyTotal.toFixed(2)}**` : "-";
     });
     lines.push(`| **Total** | ${totalCells.join(" | ")} |`);
   }
@@ -612,6 +642,8 @@ const MONTH_NAMES = [
  * per-cloud month-to-date totals with data freshness, per-service breakdown
  * and LLM credits, plus a configuration-issues section when an enabled
  * provider is missing configuration.
+ * A failed send is retried once (2 attempts total, bounded) before giving up
+ * until the next schedule.
  * No-op when the notifications integration is disabled.
  */
 export async function NotificationSendSummary(): Promise<void> {
@@ -621,12 +653,22 @@ export async function NotificationSendSummary(): Promise<void> {
 
   const now = new Date();
   const title = `Cloud cost summary — ${MONTH_NAMES[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
-  const response = await notificationClient.info(
-    title,
-    NotificationBuildSummaryBody(),
-    "cloudcost",
-  );
-  if (response) {
-    logger.info("Cost summary notification sent");
+  const body = NotificationBuildSummaryBody();
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await notificationClient.info(title, body, "cloudcost");
+    if (response) {
+      logger.info("Cost summary notification sent");
+      return;
+    }
+    if (attempt < maxAttempts) {
+      logger.warn(
+        `Cost summary notification delivery failed (attempt ${attempt}/${maxAttempts}), retrying`,
+      );
+    } else {
+      logger.warn(
+        `Cost summary notification delivery failed after ${maxAttempts} attempts, giving up until the next schedule`,
+      );
+    }
   }
 }

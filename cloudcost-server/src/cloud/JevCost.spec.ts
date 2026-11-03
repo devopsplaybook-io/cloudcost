@@ -44,12 +44,15 @@ describe("JevCost", () => {
       expect(mockedAxios.get).not.toHaveBeenCalled();
     });
 
-    it("should return an empty list without calling the API for a non-OpenRouter key", async () => {
+    it("should return an error result without calling the API for a non-OpenRouter key", async () => {
       process.env.JEV_API_KEY = "apikey_21abcdef1234567890";
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "JEV_API_KEY is not an OpenRouter key (expected sk-or-v1-...)",
+      );
       expect(mockedAxios.get).not.toHaveBeenCalled();
     });
 
@@ -64,11 +67,12 @@ describe("JevCost", () => {
         },
       });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([
+      expect(result.balances).toEqual([
         { currency: "USD", available_balance: 7.25 },
       ]);
+      expect(result.error).toBeUndefined();
       expect(mockedAxios.get).toHaveBeenCalledWith(
         "https://openrouter.ai/api/v1/credits",
         expect.objectContaining({
@@ -91,14 +95,15 @@ describe("JevCost", () => {
         },
       });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([
+      expect(result.balances).toEqual([
         { currency: "USD", available_balance: 10.45 },
       ]);
+      expect(result.error).toBeUndefined();
     });
 
-    it("should return an empty list when the credits response carries an error envelope", async () => {
+    it("should return an error result when the credits response carries an error envelope", async () => {
       process.env.JEV_API_KEY = "sk-or-v1-test";
       mockedAxios.get.mockResolvedValueOnce({
         data: {
@@ -106,18 +111,24 @@ describe("JevCost", () => {
         },
       });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "OpenRouter credits API returned an error envelope: Key not authorized for account data",
+      );
     });
 
-    it("should return an empty list when the credits response has no credits data", async () => {
+    it("should return an error result when the credits response has no credits data", async () => {
       process.env.JEV_API_KEY = "sk-or-v1-test";
       mockedAxios.get.mockResolvedValueOnce({ data: {} });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "OpenRouter credits API returned an error envelope: invalid response",
+      );
     });
 
     it("should fall back to the key budget when the credits endpoint returns 401", async () => {
@@ -134,11 +145,12 @@ describe("JevCost", () => {
           },
         });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([
+      expect(result.balances).toEqual([
         { currency: "USD", available_balance: 17.5 },
       ]);
+      expect(result.error).toBeUndefined();
       expect(mockedAxios.get).toHaveBeenNthCalledWith(
         2,
         "https://openrouter.ai/api/v1/auth/key",
@@ -161,14 +173,15 @@ describe("JevCost", () => {
           },
         });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([
+      expect(result.balances).toEqual([
         { currency: "USD", available_balance: 1.75 },
       ]);
+      expect(result.error).toBeUndefined();
     });
 
-    it("should return an empty list when the fallback key has no credit limit", async () => {
+    it("should return an error result when the fallback key has no credit limit", async () => {
       process.env.JEV_API_KEY = "sk-or-v1-test";
       mockedAxios.get
         .mockRejectedValueOnce(httpError(401))
@@ -178,20 +191,26 @@ describe("JevCost", () => {
           },
         });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "OpenRouter inference key has no credit limit set",
+      );
     });
 
-    it("should return an empty list when the fallback response has no key data", async () => {
+    it("should return an error result when the fallback response has no key data", async () => {
       process.env.JEV_API_KEY = "sk-or-v1-test";
       mockedAxios.get
         .mockRejectedValueOnce(httpError(401))
         .mockResolvedValueOnce({ data: {} });
 
-      const balances = await JevGetBalance(fakeSpan);
+      const result = await JevGetBalance(fakeSpan);
 
-      expect(balances).toEqual([]);
+      expect(result.balances).toEqual([]);
+      expect(result.error).toContain(
+        "OpenRouter key API returned an error envelope: invalid response",
+      );
     });
 
     it("should re-throw when both the credits endpoint and the fallback return 401", async () => {

@@ -2,7 +2,7 @@ import { Span } from "@opentelemetry/sdk-trace";
 import axios from "axios";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { WithRetry } from "../Retry";
-import { COST_HTTP_TIMEOUT_MS } from "./CostBreakdownInterface";
+import { COST_HTTP_TIMEOUT_MS, BalanceFetchResult } from "./CostBreakdownInterface";
 
 const logger = OTelLogger().createModuleLogger("JevCost");
 
@@ -26,7 +26,9 @@ function responseStatus(err: unknown): number | undefined {
   return (err as { response?: { status?: number } } | null)?.response?.status;
 }
 
-export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
+export async function JevGetBalance(
+  context: Span,
+): Promise<BalanceFetchResult<JevBalance>> {
   const span = OTelTracer().startSpan("JevGetBalance", context);
 
   try {
@@ -38,12 +40,15 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
     }
 
     if (!isOpenRouterKey(apiKey)) {
+      const error =
+        "JEV_API_KEY is not an OpenRouter key (expected sk-or-v1-...); the Jev credit cannot be fetched with this key";
       logger.warn(
         "JEV_API_KEY is not an OpenRouter key (expected sk-or-v1-...): TypeSafe's direct API has no balance endpoint, so the Jev credit cannot be fetched with this key. Provide an OpenRouter management key (account-wide credit) or an OpenRouter inference key with a credit limit (key budget).",
         span,
       );
+      span.setStatus({ code: 2, message: error });
       span.end();
-      return [];
+      return { balances: [], error };
     }
 
     const requestOptions = {
@@ -70,8 +75,8 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
       const data = response.data;
       // OpenRouter answers HTTP 200 with an error envelope instead of a credits
       // payload when the key cannot read account data. Such responses are
-      // non-fatal: log a warning and return empty instead of throwing, so the
-      // fetcher stays non-fatal like the other providers.
+      // non-fatal: report a config error and return empty instead of throwing,
+      // so the fetcher stays non-fatal like the other providers.
       const totalCredits = Number(data?.data?.total_credits);
       const totalUsage = Number(data?.data?.total_usage ?? 0);
       if (
@@ -80,12 +85,11 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
         !Number.isFinite(totalUsage)
       ) {
         const msg = data?.error?.message || "invalid response";
-        logger.warn(
-          `OpenRouter credits API returned an error envelope: ${msg}`,
-          span,
-        );
+        const error = `OpenRouter credits API returned an error envelope: ${msg}`;
+        logger.warn(error, span);
+        span.setStatus({ code: 2, message: error });
         span.end();
-        return [];
+        return { balances: [], error };
       }
       remaining = totalCredits - totalUsage;
     } catch (err) {
@@ -112,21 +116,20 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
       const limit = keyData?.data?.limit;
       if (keyData?.error || !Number.isFinite(usage)) {
         const msg = keyData?.error?.message || "invalid response";
-        logger.warn(
-          `OpenRouter key API returned an error envelope: ${msg}`,
-          span,
-        );
+        const error = `OpenRouter key API returned an error envelope: ${msg}`;
+        logger.warn(error, span);
+        span.setStatus({ code: 2, message: error });
         span.end();
-        return [];
+        return { balances: [], error };
       }
       // Number(null) is 0, so the null check must come before the conversion.
       if (limit === null || limit === undefined || !Number.isFinite(Number(limit))) {
-        logger.warn(
-          "OpenRouter inference key has no credit limit set; the remaining Jev budget cannot be derived from usage alone",
-          span,
-        );
+        const error =
+          "OpenRouter inference key has no credit limit set; the remaining Jev budget cannot be derived from usage alone";
+        logger.warn(error, span);
+        span.setStatus({ code: 2, message: error });
         span.end();
-        return [];
+        return { balances: [], error };
       }
       remaining = Number(limit) - usage;
     }
@@ -142,7 +145,7 @@ export async function JevGetBalance(context: Span): Promise<JevBalance[]> {
     for (const b of balances) {
       logger.info(`Jev balance: ${b.available_balance} ${b.currency}`, span);
     }
-    return balances;
+    return { balances };
   } catch (err) {
     span.setStatus({ code: 2, message: (err as Error).message });
     span.end();

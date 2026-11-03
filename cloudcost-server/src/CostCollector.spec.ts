@@ -98,8 +98,8 @@ describe("CostCollector", () => {
     }
     llmFetchers.deepseek.mockResolvedValue([]);
     llmFetchers.moonshotai.mockResolvedValue([]);
-    llmFetchers.zai.mockResolvedValue([]);
-    llmFetchers.jev.mockResolvedValue([]);
+    llmFetchers.zai.mockResolvedValue({ balances: [] });
+    llmFetchers.jev.mockResolvedValue({ balances: [] });
   });
 
   it("should fetch enabled providers in parallel", async () => {
@@ -215,9 +215,9 @@ describe("CostCollector", () => {
       { currency: "USD", total_balance: 5.5 },
     ]);
     llmFetchers.moonshotai.mockRejectedValue(new Error("timeout"));
-    llmFetchers.jev.mockResolvedValue([
-      { currency: "USD", available_balance: 4.25 },
-    ]);
+    llmFetchers.jev.mockResolvedValue({
+      balances: [{ currency: "USD", available_balance: 4.25 }],
+    });
 
     await CostCollectorFetch();
 
@@ -283,12 +283,75 @@ describe("CostCollector", () => {
     config.COST_ENABLED_ZAI = true;
     CostCollectorInit(config);
     zaiBalances.USD = 9.5;
-    llmFetchers.zai.mockResolvedValue([]);
+    llmFetchers.zai.mockResolvedValue({ balances: [] });
 
     await CostCollectorFetch();
 
     expect(zaiBalances.USD).toBeUndefined();
     expect(GetProviderFetchStatus("zai")?.lastAttemptSuccess).toBe(true);
+  });
+
+  it("should record a Jev business error as a failed fetch and keep the last balance", async () => {
+    const config = new Config();
+    config.COST_ENABLED_JEV = true;
+    CostCollectorInit(config);
+    jevBalances.USD = 4.25;
+    llmFetchers.jev.mockResolvedValue({
+      balances: [],
+      error:
+        "JEV_API_KEY is not an OpenRouter key (expected sk-or-v1-...); the Jev credit cannot be fetched with this key",
+    });
+
+    for (let i = 0; i < 3; i++) {
+      await CostCollectorFetch();
+    }
+
+    expect(jevBalances.USD).toBe(4.25);
+    expect(GetProviderFetchStatus("jev")).toMatchObject({
+      lastAttemptSuccess: false,
+      lastError: expect.stringContaining(
+        "JEV_API_KEY is not an OpenRouter key",
+      ),
+      consecutiveFailures: 3,
+    });
+    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.OK });
+    expect(span.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: SpanStatusCode.ERROR }),
+    );
+    expect(span.setAttribute).toHaveBeenCalledWith(
+      "providers.failed.names",
+      "jev",
+    );
+  });
+
+  it("should record a Z.AI business error as a failed fetch and keep the last balance", async () => {
+    const config = new Config();
+    config.COST_ENABLED_ZAI = true;
+    CostCollectorInit(config);
+    zaiBalances.USD = 3.5;
+    llmFetchers.zai.mockResolvedValue({
+      balances: [],
+      error:
+        "Z.AI account API returned success=false: Authentication Failed",
+    });
+
+    await CostCollectorFetch();
+
+    expect(zaiBalances.USD).toBe(3.5);
+    expect(GetProviderFetchStatus("zai")).toMatchObject({
+      lastAttemptSuccess: false,
+      lastError:
+        "Z.AI account API returned success=false: Authentication Failed",
+      consecutiveFailures: 1,
+    });
+    expect(span.setStatus).toHaveBeenCalledWith({ code: SpanStatusCode.OK });
+    expect(span.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ code: SpanStatusCode.ERROR }),
+    );
+    expect(span.setAttribute).toHaveBeenCalledWith(
+      "providers.failed.names",
+      "zai",
+    );
   });
 
   it("should keep the last known balance when the fetch fails", async () => {
