@@ -34,14 +34,14 @@
   },
   "devDependencies": {
     "@azure/core-rest-pipeline": "^1.25.0",
-    "@swc/core": "^1.16.21",
+    "@swc/core": "^1.16.22",
     "@swc/jest": "^0.2.39",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.6",
     "@types/node-cron": "^3.0.11",
     "jest": "^30.5.2",
-    "oxlint": "^1.90.0",
+    "oxlint": "^1.91.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
